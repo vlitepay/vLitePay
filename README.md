@@ -6,10 +6,6 @@
 
 A stablecoin-native P2P payments and trading dApp built on **Arc testnet** (Circle's L1). Enables fast, secure USDC/EURC trading with on-chain escrow, seamless airtime/data top-ups via Reloadly, and cross-chain transfers via CCTP.
 
-**Hackathon:** Programmable Money Hackathon (Encode Club + Arc) — Checkpoint 2
-
----
-
 ## ✨ Features
 
 - **Secure P2P Escrow Trading** — Buy/sell USDC/EURC for local fiat with time-bound escrow, "I have sent fiat" flow, auto-release, and trusted arbiter for disputes
