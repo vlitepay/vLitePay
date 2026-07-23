@@ -1,6 +1,7 @@
+<img width="1056" height="976" alt="logo" src="https://github.com/user-attachments/assets/b2dd0bc3-86df-45d9-b1ad-d2f44e2c0c61" />
 # vLitePay
 
-![vLitePay Logo](https://raw.githubusercontent.com/vLitePay/vLitePay/main/vlitepay-logo.png)
+(https://raw.githubusercontent.com/vLitePay/vLitePay/main/vlitepay-logo.png)
 
 **Borderless P2P Finance, Built for Speed and Trust**
 
