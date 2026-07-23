@@ -1,6 +1,6 @@
 # vLitePay
 
-![vLitePay Logo](./public/vlitepay-logo.png)
+![vLitePay Logo](https://raw.githubusercontent.com/vLitePay/vLitePay/main/vlitepay-logo.png)
 
 **Borderless P2P Finance, Built for Speed and Trust**
 
