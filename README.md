@@ -48,9 +48,15 @@ A stablecoin-native P2P payments and trading dApp built on **Arc testnet** (Circ
 - Supabase account
 - Reloadly account (for airtime integration)
 
-### Setup
+---
 
-1. **Clone the repo**
-   ```bash
-   git clone https://github.com/v/vLitePay.git
-   cd vLitePay
+## Disclaimer
+vLitePay is a technology platform only. Users and merchants are responsible for
+their own KYC/AML compliance in all fiat-touching flows.
+
+## Ready for VS Code + Acode (Android)
+No native build tooling is required to edit the frontend/backend — plain
+Node.js + npm works in both VS Code and Acode's built-in terminal. Foundry
+(`forge`) requires a Linux/macOS shell (e.g. Termux on Android) since it isn't
+available as a pure JS package.
+
