@@ -126,7 +126,7 @@ Wallets email-login scaffold (backend token issuance stubbed, ready for real Cir
 - **Home** — live on-chain USDC/EURC/cirBTC balances, 7d/30d portfolio chart (area + allocation
 pie), quick actions, live-trade social proof feed.
 
-**Transfer & Deposit** — send by username or address (with QR scanning via device camera),
+- **Transfer & Deposit** — send by username or address (with QR scanning via device camera),
 same-chain transfers with a configurable protocol fee, cross-chain USDC sends via Circle CCTP
 with a destination-chain selector, deposit QR codes per token, on-chain username registry
 (register/search/lookup).
