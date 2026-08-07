@@ -180,8 +180,11 @@ notification, username registration, and same-chain/CCTP cross-chain sends. Pers
 ## Known Limitations (Testnet)
 
 •  Circle email login is UI-complete. Full on-chain actions currently work best with WalletConnect / injected wallets.
+
 •  Profile data (avatar, bio, bank details) is currently local to the browser.
+
 •  AI receipt analyzer for disputes is simulated.
+
 •  Payment proofs are stored client-side for the MVP.
 
 ---
