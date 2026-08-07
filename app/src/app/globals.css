@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-surface-light text-ink-light dark:bg-surface-dark dark:text-ink-dark antialiased;
+    background-image: theme("backgroundImage.vlite-mesh");
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    @apply bg-vlite-purple/30;
+  }
+
+  :focus-visible {
+    outline: 2px solid theme("colors.vlite.cyan");
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Glassmorphism surface used for all elevated cards / panels */
+  .glass-panel {
+    @apply bg-surface-light-glass dark:bg-surface-dark-glass backdrop-blur-lg border border-white/40 dark:border-white/10 shadow-card dark:shadow-card-dark rounded-3xl;
+  }
+
+  .glass-panel-flush {
+    @apply bg-surface-light-glass dark:bg-surface-dark-glass backdrop-blur-lg border border-white/40 dark:border-white/10;
+  }
+
+  /* Primary CTA — bold gradient with a soft glow, matches the logo's V gradient */
+  .btn-vlite-primary {
+    @apply relative inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 font-semibold text-white
+      bg-vlite-gradient shadow-glow transition-transform duration-150 active:scale-[0.97] hover:brightness-110
+      disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  .btn-vlite-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 font-semibold
+      glass-panel-flush rounded-2xl text-ink-light dark:text-ink-dark
+      transition-transform duration-150 active:scale-[0.97] hover:bg-white/60 dark:hover:bg-white/10;
+  }
+
+  .btn-vlite-icon {
+    @apply inline-flex items-center justify-center rounded-full h-10 w-10 glass-panel-flush
+      transition-transform duration-150 active:scale-90 hover:bg-white/60 dark:hover:bg-white/10;
+  }
+
+  /* The signature "halo" glow behind the logo / primary balance — echoes the star halo in the mark */
+  .vlite-halo {
+    @apply pointer-events-none absolute inset-0 bg-vlite-radial-glow blur-2xl animate-pulse-glow;
+  }
+
+  .stat-mono {
+    @apply font-mono tabular-nums tracking-tight;
+  }
+
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium;
+  }
+}
