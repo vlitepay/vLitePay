@@ -5,7 +5,8 @@
 Premium P2P stablecoin dApp on **Arc Testnet**.  
 Send USDC/EURC/cirBTC, trade P2P for local fiat with merchants, top up airtime/data, and move USDC cross-chain via Circle CCTP.
 
-🔗 **Live Demo**: [https://vlitepay.vercel.app](https://vlitepay.vercel.app) *(update with your actual Vercel URL)*  
+🔗 **Live Demo**: [https://vlitepay.com](https://vlitepay.com)
+
 📦 **GitHub**: [https://github.com/vlitepay/vLitePay](https://github.com/vlitepay/vLitePay)
 
 ---
