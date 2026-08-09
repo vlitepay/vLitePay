@@ -151,7 +151,6 @@ trade history (replayed from `TradeLocked` logs), and a merchant application sho
 
 ## Known Limitations (Testnet)
 
-Known Limitations (Testnet)
 • Profile data (avatar, bio, bank details) is currently stored locally in the browser.
 
 • AI receipt analyzer for disputes is still simulated.
