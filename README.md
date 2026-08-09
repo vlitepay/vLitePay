@@ -133,7 +133,7 @@ pie), quick actions, live-trade social proof feed.
 - **MyShop** — merchant application flow, offer posting, pause/resume, and per-offer performance
 stats (views/trades/volume).
 
-- **Top Up** — Airtime & data top-ups via Reloadly (Africa + Asia focus)
+- **Top Up** — Airtime & data top-ups via Reloadly (Africa, Asia and beyond)
 
 - **Username Registry** — On-chain username → wallet resolution
 
@@ -151,13 +151,14 @@ trade history (replayed from `TradeLocked` logs), and a merchant application sho
 
 ## Known Limitations (Testnet)
 
-•  Circle email login is UI-complete. Full on-chain actions currently work best with WalletConnect / injected wallets.
+Known Limitations (Testnet)
+• Profile data (avatar, bio, bank details) is currently stored locally in the browser.
 
-•  Profile data (avatar, bio, bank details) is currently local to the browser.
+• AI receipt analyzer for disputes is still simulated.
 
-•  AI receipt analyzer for disputes is simulated.
+• Payment proofs and trade chat messages are stored client-side for the MVP (will move to Supabase).
 
-•  Payment proofs are stored client-side for the MVP.
+• Some advanced merchant and referral features are not yet fully active.
 
 ---
 
