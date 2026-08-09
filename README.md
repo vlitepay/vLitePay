@@ -5,7 +5,8 @@
 Premium P2P stablecoin dApp on **Arc Testnet**.  
 Send USDC/EURC/cirBTC, trade P2P for local fiat with merchants, top up airtime/data, and move USDC cross-chain via Circle CCTP.
 
-🔗 **Live Demo**: [https://vlitepay.vercel.app](https://vlitepay.vercel.app) *(update with your actual Vercel URL)*  
+🔗 **Live Demo**: [https://vlitepay.com](https://vlitepay.com)
+
 📦 **GitHub**: [https://github.com/vlitepay/vLitePay](https://github.com/vlitepay/vLitePay)
 
 ---
@@ -126,7 +127,7 @@ Wallets email-login scaffold (backend token issuance stubbed, ready for real Cir
 - **Home** — live on-chain USDC/EURC/cirBTC balances, 7d/30d portfolio chart (area + allocation
 pie), quick actions, live-trade social proof feed.
 
-**Transfer & Deposit** — send by username or address (with QR scanning via device camera),
+- **Transfer & Deposit** — send by username or address (with QR scanning via device camera),
 same-chain transfers with a configurable protocol fee, cross-chain USDC sends via Circle CCTP
 with a destination-chain selector, deposit QR codes per token, on-chain username registry
 (register/search/lookup).
@@ -180,8 +181,11 @@ notification, username registration, and same-chain/CCTP cross-chain sends. Pers
 ## Known Limitations (Testnet)
 
 •  Circle email login is UI-complete. Full on-chain actions currently work best with WalletConnect / injected wallets.
+
 •  Profile data (avatar, bio, bank details) is currently local to the browser.
+
 •  AI receipt analyzer for disputes is simulated.
+
 •  Payment proofs are stored client-side for the MVP.
 
 ---
