@@ -5,11 +5,13 @@ import { useWriteContract, usePublicClient } from "wagmi";
 import { CONTRACTS } from "@/lib/constants";
 import { p2pEscrowAbi } from "@/lib/abi/p2pEscrow";
 import { OfferSide } from "@/lib/types/p2p";
+import { waitForReceiptRobust, ReceiptRevertedError, ReceiptTimeoutError } from "@/lib/waitForReceipt";
 
 export function useMerchantActions() {
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient();
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function run<T>(fn: () => Promise<T>): Promise<T | null> {
@@ -18,10 +20,27 @@ export function useMerchantActions() {
     try {
       return await fn();
     } catch (err: any) {
-      setError(err?.shortMessage || err?.message || "Transaction failed");
+      if (err instanceof ReceiptRevertedError) {
+        setError("Transaction reverted on-chain.");
+      } else if (err instanceof ReceiptTimeoutError) {
+        setError(err.message);
+      } else {
+        setError(err?.shortMessage || err?.message || "Transaction failed");
+      }
       return null;
     } finally {
       setBusy(false);
+      setConfirming(false);
+    }
+  }
+
+  /** Confirms `hash` on-chain via the robust poller, toggling `confirming` around the wait. */
+  async function confirm(hash: `0x${string}`) {
+    setConfirming(true);
+    try {
+      return await waitForReceiptRobust(publicClient, hash);
+    } finally {
+      setConfirming(false);
     }
   }
 
@@ -32,7 +51,7 @@ export function useMerchantActions() {
         abi: p2pEscrowAbi,
         functionName: "applyForMerchant",
       });
-      await publicClient?.waitForTransactionReceipt({ hash });
+      await confirm(hash);
       return hash;
     });
   }
@@ -53,7 +72,7 @@ export function useMerchantActions() {
         functionName: "createOffer",
         args: [side, token, fiatCurrency, rate, minAmount, maxAmount, terms],
       });
-      await publicClient?.waitForTransactionReceipt({ hash });
+      await confirm(hash);
       return hash;
     });
   }
@@ -66,7 +85,7 @@ export function useMerchantActions() {
         functionName: "pauseOffer",
         args: [offerId],
       });
-      await publicClient?.waitForTransactionReceipt({ hash });
+      await confirm(hash);
       return hash;
     });
   }
@@ -79,10 +98,10 @@ export function useMerchantActions() {
         functionName: "resumeOffer",
         args: [offerId],
       });
-      await publicClient?.waitForTransactionReceipt({ hash });
+      await confirm(hash);
       return hash;
     });
   }
 
-  return { busy, error, applyForMerchant, createOffer, pauseOffer, resumeOffer };
+  return { busy, confirming, error, applyForMerchant, createOffer, pauseOffer, resumeOffer };
 }

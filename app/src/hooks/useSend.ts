@@ -3,50 +3,16 @@
 import { useState } from "react";
 import { useAccount, useWriteContract, usePublicClient } from "wagmi";
 import { pad } from "viem";
-import type { TransactionReceipt } from "viem";
 import { CONTRACTS, TOKENS, TokenSymbol } from "@/lib/constants";
 import { erc20AllowanceAbi } from "@/lib/abi/p2pEscrow";
 import { tokenMessengerAbi, CCTP_FINALITY_THRESHOLD } from "@/lib/abi/tokenMessenger";
 import { useTreasuryAddress } from "./useTreasuryAddress";
+import { waitForReceiptRobust, ReceiptRevertedError, ReceiptTimeoutError } from "@/lib/waitForReceipt";
 
-/**
- * "Soft" receipt confirmation. By the time this runs, `writeContractAsync`
- * has already resolved successfully — for a Circle wallet specifically,
- * that means Circle's own transaction-status polling already confirmed
- * COMPLETE/CONFIRMED server-side before ever handing back a hash (see
- * lib/circleConnector.ts's pollForTxHash). This follow-up on-chain receipt
- * check is an extra confirmation, not a precondition for success: it used
- * to be awaited with no timeout and any failure there (RPC hiccup, brief
- * indexing lag between Circle's confirmation and the node being queried)
- * was caught as a hard error — overriding an already-successful, already
- * on-chain transaction with "An unknown RPC error occurred" and no txHash
- * ever shown, even though the send was visible on Arcscan the whole time.
- *
- * Arc has near-instant finality, so a short bounded wait is enough to
- * confirm the common case quickly without making a slow RPC block the
- * success UI. If it doesn't resolve in time, that's a confirmation-check
- * failure, not proof the transaction didn't happen — callers get `null`
- * back and proceed with the hash they already have instead of failing.
- * A transaction that genuinely reverted is a different thing entirely
- * (the wait *succeeds* and returns a receipt with `status: "reverted"`)
- * and callers that care still check that explicitly.
- */
-async function waitForReceiptSoft(
-  publicClient: ReturnType<typeof usePublicClient> | undefined,
-  hash: `0x${string}`,
-  label: string
-): Promise<TransactionReceipt | null> {
-  if (!publicClient) return null;
-  try {
-    return await publicClient.waitForTransactionReceipt({ hash, timeout: 15_000 });
-  } catch (err) {
-    console.warn(
-      `[send] ${label} confirmation check timed out or failed — the transaction was already broadcast ` +
-        `(${hash}) and should already be visible on Arcscan. Continuing without blocking on this RPC call.`,
-      err
-    );
-    return null;
-  }
+function describeConfirmError(err: unknown, fallback: string): string {
+  if (err instanceof ReceiptRevertedError) return "Transaction reverted on-chain — no funds were moved.";
+  if (err instanceof ReceiptTimeoutError) return err.message;
+  return (err as any)?.shortMessage || (err as any)?.message || fallback;
 }
 
 /**
@@ -55,12 +21,18 @@ async function waitForReceiptSoft(
  * transfers (net amount to the recipient, fee to the treasury). This is NOT
  * atomic — a production build should wrap both legs in a single contract call
  * so they either both succeed or both revert.
+ *
+ * `confirming` flips true right after the wallet hands back a hash (the
+ * Circle PIN popup / WalletConnect prompt has closed) and stays true until
+ * waitForReceiptRobust actually confirms it on-chain — SendPanel uses this
+ * to show a "Confirming on-chain…" state distinct from "waiting on wallet".
  */
 export function useLocalSend() {
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient();
   const { treasury } = useTreasuryAddress();
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function send(tokenSymbol: TokenSymbol, recipient: `0x${string}`, netAmount: bigint, feeAmount: bigint) {
@@ -73,9 +45,8 @@ export function useLocalSend() {
         functionName: "transfer",
         args: [recipient, netAmount],
       });
-      // Soft confirmation only — a failed/timed-out wait here must not
-      // undo a transfer that already broadcast successfully.
-      await waitForReceiptSoft(publicClient, hash1, "transfer");
+      setConfirming(true);
+      await waitForReceiptRobust(publicClient, hash1);
 
       if (feeAmount > 0n && treasury) {
         const hash2 = await writeContractAsync({
@@ -84,22 +55,25 @@ export function useLocalSend() {
           functionName: "transfer",
           args: [treasury, feeAmount],
         });
-        await waitForReceiptSoft(publicClient, hash2, "fee transfer");
+        await waitForReceiptRobust(publicClient, hash2);
       }
 
       return hash1;
     } catch (err: any) {
-      // Reaching here means writeContractAsync itself threw — a genuine
-      // submission failure (rejected in the wallet, Circle challenge
-      // failed, etc.), not a soft confirmation-check issue.
-      setError(err?.shortMessage || err?.message || "Transfer failed");
+      // Either writeContractAsync itself threw (rejected in the wallet,
+      // Circle challenge failed, etc.) or waitForReceiptRobust genuinely
+      // exhausted its retries/timeout, or the transaction confirmed but
+      // reverted — describeConfirmError tells these apart for the message
+      // shown to the user.
+      setError(describeConfirmError(err, "Transfer failed"));
       return null;
     } finally {
       setBusy(false);
+      setConfirming(false);
     }
   }
 
-  return { send, busy, error };
+  return { send, busy, confirming, error };
 }
 
 // --- CCTP V2 fast-transfer gas limits ---
@@ -127,6 +101,7 @@ export function useCctpSend() {
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient();
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function sendCrossChain(amount: bigint, destinationDomain: number, recipientAddress: `0x${string}`) {
@@ -167,19 +142,10 @@ export function useCctpSend() {
         });
         console.log("[CCTP] approve() submitted:", approveHash);
 
-        // Soft confirmation: if this can't be verified within the short
-        // window, we still proceed — approve() already broadcast
-        // successfully (writeContractAsync didn't throw). If it genuinely
-        // reverted, depositForBurn below will fail on its own from
-        // insufficient allowance and surface a real error then.
-        const approveReceipt = await waitForReceiptSoft(publicClient, approveHash, "USDC approve");
-        if (approveReceipt) {
-          console.log("[CCTP] approve() confirmed in block", approveReceipt.blockNumber, "status:", approveReceipt.status);
-          if (approveReceipt.status !== "success") {
-            setError("USDC approval failed — depositForBurn was not attempted.");
-            return null;
-          }
-        }
+        setConfirming(true);
+        const approveReceipt = await waitForReceiptRobust(publicClient, approveHash);
+        setConfirming(false);
+        console.log("[CCTP] approve() confirmed in block", approveReceipt.blockNumber, "status:", approveReceipt.status);
       } else {
         console.log("[CCTP] existing allowance already covers this amount — skipping approve()");
       }
@@ -215,29 +181,20 @@ export function useCctpSend() {
       });
       console.log("[CCTP] depositForBurn() submitted:", hash);
 
-      // Soft confirmation, same reasoning as approve() above — a failed/
-      // timed-out wait here must not undo a burn that already broadcast
-      // successfully. Arc has near-instant finality, so this resolves
-      // quickly in the common case; a real revert still surfaces below
-      // whenever the receipt does come back.
-      const receipt = await waitForReceiptSoft(publicClient, hash, "depositForBurn");
-      if (receipt) {
-        console.log("[CCTP] depositForBurn() confirmed in block", receipt.blockNumber, "status:", receipt.status);
-        if (receipt.status !== "success") {
-          setError("depositForBurn transaction reverted — check the tx trace for the revert reason.");
-          return null;
-        }
-      }
+      setConfirming(true);
+      const receipt = await waitForReceiptRobust(publicClient, hash);
+      console.log("[CCTP] depositForBurn() confirmed in block", receipt.blockNumber, "status:", receipt.status);
 
       return hash;
     } catch (err: any) {
       console.error("[CCTP] sendCrossChain failed:", err);
-      setError(err?.shortMessage || err?.message || "Cross-chain send failed");
+      setError(describeConfirmError(err, "Cross-chain send failed"));
       return null;
     } finally {
       setBusy(false);
+      setConfirming(false);
     }
   }
 
-  return { sendCrossChain, busy, error };
+  return { sendCrossChain, busy, confirming, error };
 }

@@ -5,6 +5,7 @@ import { useWriteContract, usePublicClient } from "wagmi";
 import { erc20AllowanceAbi } from "@/lib/abi/p2pEscrow";
 import { TOKENS, TokenSymbol } from "@/lib/constants";
 import { useTreasuryAddress } from "./useTreasuryAddress";
+import { waitForReceiptRobust, ReceiptRevertedError, ReceiptTimeoutError } from "@/lib/waitForReceipt";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
 
@@ -49,7 +50,7 @@ export function useAirtimePurchase() {
         functionName: "transfer",
         args: [treasury, input.tokenAmount],
       });
-      await publicClient?.waitForTransactionReceipt({ hash });
+      await waitForReceiptRobust(publicClient, hash);
 
       setStep("confirming");
       const res = await fetch(`${BACKEND_URL}/airtime/topup`, {
@@ -78,7 +79,13 @@ export function useAirtimePurchase() {
       setStep("done");
       return { hash };
     } catch (err: any) {
-      setError(err?.shortMessage || err?.message || "Top up purchase failed");
+      if (err instanceof ReceiptRevertedError) {
+        setError("Transaction reverted on-chain — no funds were charged.");
+      } else if (err instanceof ReceiptTimeoutError) {
+        setError(err.message);
+      } else {
+        setError(err?.shortMessage || err?.message || "Top up purchase failed");
+      }
       return null;
     } finally {
       setBusy(false);

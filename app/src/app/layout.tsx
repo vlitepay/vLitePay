@@ -17,8 +17,8 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "vLitePay — Premium P2P payments on Arc",
-  description: "Send stablecoins, trade P2P for local fiat, and top up your phone — powered by Circle on Arc Testnet.",
+  title: "vLitePay — Borderless P2P Finance",
+  description: "Send stablecoins, trade P2P for local fiat, and top up your phone — powered by USDC.",
   icons: { icon: "/logo.png", apple: "/logo.png" },
 };
 

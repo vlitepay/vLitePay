@@ -32,7 +32,7 @@ export default function TradeDetailPage() {
 
   const { trade, timeRemainingSec, refetch } = useTrade(tradeId);
   const { hasRated, refetch: refetchRated } = useHasRated(trade ? BigInt(tradeId) : null);
-  const { markFiatSent, releaseFunds, cancelTrade, busy, error } = useEscrowActions();
+  const { markFiatSent, releaseFunds, cancelTrade, busy, confirming, error } = useEscrowActions();
   const setActiveTradeId = useVLiteStore((s) => s.setActiveTradeId);
   const markFirstActionComplete = useVLiteStore((s) => s.markFirstActionComplete);
 
@@ -191,19 +191,19 @@ export default function TradeDetailPage() {
       {/* --- Role-based actions --- */}
       {trade.status === TradeStatus.Locked && myRole === "buyer" && (
         <button onClick={() => handleAction("markFiatSent")} disabled={busy} className="btn-vlite-primary w-full">
-          {busy ? "Confirming…" : "I have sent the fiat"}
+          {confirming ? "Confirming on-chain…" : busy ? "Submitting…" : "I have sent the fiat"}
         </button>
       )}
 
       {trade.status === TradeStatus.FiatMarked && myRole === "seller" && (
         <button onClick={() => handleAction("release")} disabled={busy} className="btn-vlite-primary w-full">
-          {busy ? "Releasing…" : "Release funds"}
+          {confirming ? "Confirming on-chain…" : busy ? "Releasing…" : "Release funds"}
         </button>
       )}
 
       {trade.status === TradeStatus.Locked && myRole && (
         <button onClick={() => handleAction("cancel")} disabled={busy} className="btn-vlite-secondary w-full">
-          Cancel trade
+          {confirming ? "Confirming on-chain…" : busy ? "Cancelling…" : "Cancel trade"}
         </button>
       )}
 

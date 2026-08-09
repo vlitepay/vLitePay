@@ -47,7 +47,7 @@ export default function OfferDetailPage() {
   const { rates } = useExchangeRates();
   const { makerFeeBps, takerFeeBps } = useProtocolFee();
   const { allowance, refetch: refetchAllowance } = useAllowance(offer?.tokenSymbol ?? "USDC");
-  const { approveToken, acceptOffer, busy, error } = useEscrowActions();
+  const { approveToken, acceptOffer, busy, confirming, error } = useEscrowActions();
   const setActiveTradeId = useVLiteStore((s) => s.setActiveTradeId);
 
   const [amount, setAmount] = useState("");
@@ -186,6 +186,8 @@ export default function OfferDetailPage() {
       <button onClick={handleAccept} disabled={!valid || busy || !address} className="btn-vlite-primary w-full">
         {!address
           ? "Connect wallet to trade"
+          : confirming
+          ? "Confirming on-chain…"
           : busy
           ? needsApproval
             ? "Approving…"

@@ -43,10 +43,11 @@ export function SendPanel() {
   const [amount, setAmount] = useState("");
   const [done, setDone] = useState<string | null>(null);
 
-  const { send, busy: localBusy, error: localError } = useLocalSend();
-  const { sendCrossChain, busy: cctpBusy, error: cctpError } = useCctpSend();
+  const { send, busy: localBusy, confirming: localConfirming, error: localError } = useLocalSend();
+  const { sendCrossChain, busy: cctpBusy, confirming: cctpConfirming, error: cctpError } = useCctpSend();
   const markFirstActionComplete = useVLiteStore((s) => s.markFirstActionComplete);
   const busy = localBusy || cctpBusy;
+  const confirming = localConfirming || cctpConfirming;
   const error = localError || cctpError;
 
   const decimals = TOKENS[token].decimals;
@@ -176,7 +177,7 @@ export function SendPanel() {
       {error && <p className="text-sm text-danger">{error}</p>}
 
       <button onClick={handleSend} disabled={!valid || busy} className="btn-vlite-primary w-full">
-        {busy ? (isCrossChain ? "Bridging via CCTP…" : "Sending…") : "Send"}
+        {confirming ? "Confirming on-chain…" : busy ? (isCrossChain ? "Bridging via CCTP…" : "Sending…") : "Send"}
       </button>
     </div>
   );

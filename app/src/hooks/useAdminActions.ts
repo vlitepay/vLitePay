@@ -5,11 +5,13 @@ import type { Abi } from "viem";
 import { useWriteContract, usePublicClient } from "wagmi";
 import { CONTRACTS } from "@/lib/constants";
 import { p2pEscrowAbi } from "@/lib/abi/p2pEscrow";
+import { waitForReceiptRobust, ReceiptRevertedError, ReceiptTimeoutError } from "@/lib/waitForReceipt";
 
 export function useAdminActions() {
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient();
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function run<T>(fn: () => Promise<T>): Promise<T | null> {
@@ -18,10 +20,17 @@ export function useAdminActions() {
     try {
       return await fn();
     } catch (err: any) {
-      setError(err?.shortMessage || err?.message || "Transaction failed");
+      if (err instanceof ReceiptRevertedError) {
+        setError("Transaction reverted on-chain.");
+      } else if (err instanceof ReceiptTimeoutError) {
+        setError(err.message);
+      } else {
+        setError(err?.shortMessage || err?.message || "Transaction failed");
+      }
       return null;
     } finally {
       setBusy(false);
+      setConfirming(false);
     }
   }
 
@@ -50,13 +59,19 @@ export function useAdminActions() {
         functionName,
         args,
       });
-      await publicClient?.waitForTransactionReceipt({ hash });
+      setConfirming(true);
+      try {
+        await waitForReceiptRobust(publicClient, hash);
+      } finally {
+        setConfirming(false);
+      }
       return hash;
     });
   }
 
   return {
     busy,
+    confirming,
     error,
     approveMerchant: (addr: `0x${string}`) => write("approveMerchant", [addr]),
     rejectMerchant: (addr: `0x${string}`) => write("rejectMerchant", [addr]),

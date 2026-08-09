@@ -174,6 +174,7 @@ async function executeCircleChallenge(
   }
 
   const sdk = getCircleSdk();
+  const submittedAt = Date.now();
 
   // Circle's execute() reports back through a callback rather than a
   // resolved/rejected promise directly — wrap it in one, but treat
@@ -215,12 +216,60 @@ async function executeCircleChallenge(
   // transaction on-chain, so we poll for it (see pollForTxHash) rather than
   // returning undefined — which is exactly what previously caused "waiting
   // for transaction with hash 'undefined'" downstream.
-  const transactionId = executeResult?.data?.id ?? executeResult?.id ?? executeResult?.data?.transactionId;
+  //
+  // Circle's execute() callback result reliably includes `.data.signature`
+  // for signing challenges (confirmed in their own SDK samples), but does
+  // NOT reliably expose the created transaction's id for a transaction-type
+  // challenge across SDK versions — checking a few known field shapes here
+  // is a fast path when it works, but when it doesn't ("Circle did not
+  // return a transaction id" was surfacing even though the transaction had
+  // already confirmed on-chain), we fall back to asking Circle directly
+  // for this wallet's most recent transaction instead of guessing further
+  // field names.
+  const directTransactionId =
+    executeResult?.data?.id ?? executeResult?.id ?? executeResult?.data?.transactionId ?? executeResult?.transactionId;
+
+  const transactionId = directTransactionId ?? (await resolveLatestTransactionId(session.userToken, session.walletId, submittedAt));
+
   if (!transactionId) {
-    throw new Error("Circle did not return a transaction id to track");
+    throw new Error("Could not determine which Circle transaction to track after signing");
   }
 
   return pollForTxHash(transactionId, session.userToken);
+}
+
+/**
+ * Fallback for when Circle's execute() callback doesn't hand back a usable
+ * transaction id directly (see caller). Lists this wallet's most recent
+ * transactions (app/api/circle/transactions/route.ts, same X-User-Token
+ * scoping as the wallet lookup during login) and picks the most recent one
+ * created at or after `submittedAt` — a short retry loop, since the
+ * transaction record may take a moment to appear in the list after the
+ * challenge executes.
+ */
+async function resolveLatestTransactionId(userToken: string, walletId: string, submittedAt: number): Promise<string | null> {
+  const deadline = Date.now() + 20_000;
+
+  while (Date.now() < deadline) {
+    const res = await fetch("/api/circle/transactions", {
+      headers: { "x-user-token": userToken },
+    }).catch(() => null);
+
+    if (res?.ok) {
+      const body = await res.json().catch(() => null);
+      const transactions: any[] = body?.transactions ?? [];
+      const match = transactions.find((t) => {
+        const created = t.createDate ? new Date(t.createDate).getTime() : 0;
+        const sameWallet = !t.walletId || t.walletId === walletId; // tolerate the field being absent
+        return sameWallet && created >= submittedAt - 5_000; // small grace window for clock skew
+      });
+      if (match?.id) return match.id;
+    }
+
+    await new Promise((r) => setTimeout(r, 2_000));
+  }
+
+  return null;
 }
 
 const TX_POLL_INTERVAL_MS = 2000;

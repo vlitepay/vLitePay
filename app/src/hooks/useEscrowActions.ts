@@ -5,17 +5,24 @@ import { useWriteContract, usePublicClient } from "wagmi";
 import { decodeEventLog } from "viem";
 import { CONTRACTS, TOKENS, TokenSymbol } from "@/lib/constants";
 import { p2pEscrowAbi, erc20AllowanceAbi } from "@/lib/abi/p2pEscrow";
+import { waitForReceiptRobust, ReceiptRevertedError, ReceiptTimeoutError } from "@/lib/waitForReceipt";
 
 /**
  * Centralizes every P2PEscrow write call the trading UI needs. Each action
  * returns a promise that resolves once the transaction is mined, and tracks
- * a simple busy/error state so components can disable buttons + show spinners
- * without duplicating try/catch boilerplate everywhere.
+ * busy/confirming/error state so components can disable buttons + show
+ * spinners without duplicating try/catch boilerplate everywhere.
+ *
+ * `confirming` flips true right after the wallet hands back a hash (the
+ * popup has closed) and stays true until waitForReceiptRobust actually
+ * confirms it on-chain — components can use it to show a "Confirming
+ * on-chain…" state distinct from "waiting on the wallet".
  */
 export function useEscrowActions() {
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient();
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function run<T>(fn: () => Promise<T>): Promise<T | null> {
@@ -24,10 +31,27 @@ export function useEscrowActions() {
     try {
       return await fn();
     } catch (err: any) {
-      setError(err?.shortMessage || err?.message || "Transaction failed");
+      if (err instanceof ReceiptRevertedError) {
+        setError("Transaction reverted on-chain — no funds were moved.");
+      } else if (err instanceof ReceiptTimeoutError) {
+        setError(err.message);
+      } else {
+        setError(err?.shortMessage || err?.message || "Transaction failed");
+      }
       return null;
     } finally {
       setBusy(false);
+      setConfirming(false);
+    }
+  }
+
+  /** Confirms `hash` on-chain via the robust poller, toggling `confirming` around the wait. */
+  async function confirm(hash: `0x${string}`) {
+    setConfirming(true);
+    try {
+      return await waitForReceiptRobust(publicClient, hash);
+    } finally {
+      setConfirming(false);
     }
   }
 
@@ -40,7 +64,7 @@ export function useEscrowActions() {
         functionName: "approve",
         args: [CONTRACTS.p2pEscrow, amount],
       });
-      await publicClient?.waitForTransactionReceipt({ hash });
+      await confirm(hash);
       return hash;
     });
   }
@@ -49,6 +73,10 @@ export function useEscrowActions() {
    * Accepts an offer, locking `amount` (smallest units) in escrow.
    * Assumes allowance is already sufficient for the party whose funds get pulled.
    * Returns the new tradeId parsed from the TradeLocked event, plus the tx hash.
+   * The tradeId is only ever returned once the receipt is confirmed —
+   * callers (e.g. app/p2p/offer/[id]/page.tsx setting activeTradeId) should
+   * treat a non-null tradeId here as proof of on-chain success, not just a
+   * submitted transaction.
    */
   async function acceptOffer(offerId: bigint, amount: bigint, fiatAmount: bigint, useAlternateTimer: boolean) {
     return run(async () => {
@@ -58,7 +86,7 @@ export function useEscrowActions() {
         functionName: "acceptOffer",
         args: [offerId, amount, fiatAmount, useAlternateTimer],
       });
-      const receipt = await publicClient?.waitForTransactionReceipt({ hash });
+      const receipt = await confirm(hash);
 
       let tradeId: bigint | null = null;
       for (const log of receipt?.logs ?? []) {
@@ -83,7 +111,7 @@ export function useEscrowActions() {
         functionName: "markFiatSent",
         args: [tradeId],
       });
-      await publicClient?.waitForTransactionReceipt({ hash });
+      await confirm(hash);
       return hash;
     });
   }
@@ -96,7 +124,7 @@ export function useEscrowActions() {
         functionName: "releaseFunds",
         args: [tradeId],
       });
-      await publicClient?.waitForTransactionReceipt({ hash });
+      await confirm(hash);
       return hash;
     });
   }
@@ -109,7 +137,7 @@ export function useEscrowActions() {
         functionName: "cancelTrade",
         args: [tradeId],
       });
-      await publicClient?.waitForTransactionReceipt({ hash });
+      await confirm(hash);
       return hash;
     });
   }
@@ -122,7 +150,7 @@ export function useEscrowActions() {
         functionName: "raiseDispute",
         args: [tradeId, evidenceURI],
       });
-      await publicClient?.waitForTransactionReceipt({ hash });
+      await confirm(hash);
       return hash;
     });
   }
@@ -135,13 +163,14 @@ export function useEscrowActions() {
         functionName: "rateTrade",
         args: [tradeId, stars, comment],
       });
-      await publicClient?.waitForTransactionReceipt({ hash });
+      await confirm(hash);
       return hash;
     });
   }
 
   return {
     busy,
+    confirming,
     error,
     approveToken,
     acceptOffer,

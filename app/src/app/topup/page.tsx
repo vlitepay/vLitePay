@@ -223,7 +223,7 @@ export default function TopUpPage() {
       </div>
 
       <p className="text-[11px] text-ink-muted text-center px-6">
-        Reloadly sandbox mode — no real airtime or data is delivered on Arc Testnet.
+        Sandbox mode — no real airtime or data is delivered on Arc Testnet.
       </p>
     </div>
   );

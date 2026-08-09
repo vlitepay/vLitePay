@@ -118,6 +118,13 @@ export const FIAT_CURRENCIES = [
   { code: "USD", label: "US Dollar", flag: "🇺🇸" },
   { code: "KES", label: "Kenyan Shilling", flag: "🇰🇪" },
   { code: "GHS", label: "Ghanaian Cedi", flag: "🇬🇭" },
+  { code: "GBP", label: "British Pound", flag: "🇬🇧" },
+  { code: "VND", label: "Vietnamese Dong", flag: "🇻🇳" },
+  { code: "BRL", label: "Brazilian Real", flag: "🇧🇷" },
+  { code: "INR", label: "Indian Rupee", flag: "🇮🇳" },
+  { code: "MYR", label: "Malaysian Ringgit", flag: "🇲🇾" },
+  { code: "IDR", label: "Indonesian Rupiah", flag: "🇮🇩" },
+  { code: "ZAR", label: "South African Rand", flag: "🇿🇦" },
 ] as const;
 
 export type FiatCode = (typeof FIAT_CURRENCIES)[number]["code"];

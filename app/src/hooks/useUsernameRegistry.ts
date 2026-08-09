@@ -5,6 +5,7 @@ import { useAccount, useReadContract, useWriteContract, usePublicClient } from "
 import { CONTRACTS, TOKENS } from "@/lib/constants";
 import { usernameRegistryAbi } from "@/lib/abi/usernameRegistry";
 import { erc20AllowanceAbi } from "@/lib/abi/p2pEscrow";
+import { waitForReceiptRobust, ReceiptRevertedError, ReceiptTimeoutError } from "@/lib/waitForReceipt";
 
 /** Resolves a username to an address (returns zero address if unregistered). */
 export function useResolveUsername(username: string) {
@@ -46,6 +47,7 @@ export function useUsernameActions() {
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient();
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function run<T>(fn: () => Promise<T>): Promise<T | null> {
@@ -54,10 +56,27 @@ export function useUsernameActions() {
     try {
       return await fn();
     } catch (err: any) {
-      setError(err?.shortMessage || err?.message || "Transaction failed");
+      if (err instanceof ReceiptRevertedError) {
+        setError("Transaction reverted on-chain.");
+      } else if (err instanceof ReceiptTimeoutError) {
+        setError(err.message);
+      } else {
+        setError(err?.shortMessage || err?.message || "Transaction failed");
+      }
       return null;
     } finally {
       setBusy(false);
+      setConfirming(false);
+    }
+  }
+
+  /** Confirms `hash` on-chain via the robust poller, toggling `confirming` around the wait. */
+  async function confirm(hash: `0x${string}`) {
+    setConfirming(true);
+    try {
+      return await waitForReceiptRobust(publicClient, hash);
+    } finally {
+      setConfirming(false);
     }
   }
 
@@ -71,7 +90,7 @@ export function useUsernameActions() {
           functionName: "approve",
           args: [CONTRACTS.usernameRegistry, feeAmount],
         });
-        await publicClient?.waitForTransactionReceipt({ hash: approveHash });
+        await confirm(approveHash);
       }
 
       const hash = await writeContractAsync({
@@ -80,10 +99,10 @@ export function useUsernameActions() {
         functionName: "registerUsername",
         args: [username],
       });
-      await publicClient?.waitForTransactionReceipt({ hash });
+      await confirm(hash);
       return hash;
     });
   }
 
-  return { register, busy, error };
+  return { register, busy, confirming, error };
 }

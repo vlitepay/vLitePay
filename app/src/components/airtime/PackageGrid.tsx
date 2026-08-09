@@ -42,7 +42,34 @@ export function PackageGrid({
 
   const supportsCustomAmount = operator.denominationType === "RANGE";
   const hasFixedPackages = operator.denominationType === "FIXED" && operator.fixedAmounts?.length > 0;
-  const localCode = operator.localCurrencyCode;
+
+  // A currency code to display local prices in, from whichever field Reloadly
+  // actually populated for this operator — localCurrencyCode isn't always
+  // present, but fx.currencyCode / destinationCurrencyCode reliably are.
+  const localCode = operator.localCurrencyCode ?? operator.fx?.currencyCode ?? operator.destinationCurrencyCode ?? null;
+
+  // `supportsLocalAmounts === false` means Reloadly genuinely has no local
+  // pricing for this operator at all — USD is the only real price available,
+  // not a bug. Anything else (true, or the field simply being absent) means
+  // local pricing should be attempted.
+  const hasLocalPricing = operator.supportsLocalAmounts !== false && !!localCode;
+
+  /**
+   * Reloadly sometimes leaves `localFixedAmounts`/`localMinAmount`/
+   * `localMaxAmount` empty for a given operator even though it otherwise
+   * supports local pricing — bundle/combo SKUs especially. When that
+   * happens, `preComputed` here is null/undefined, so this falls back to
+   * computing the local price from the operator's own `fx.rate` (present on
+   * effectively every operator response) instead of just giving up and
+   * showing USD — that fallback gap was why local currency wasn't showing
+   * for some Nigerian operators despite NGN pricing genuinely being
+   * available for them.
+   */
+  function localPriceFor(usdAmount: number, preComputed?: number | null): string {
+    if (!hasLocalPricing) return `$${usdAmount}`;
+    const localAmount = preComputed ?? (operator?.fx?.rate ? usdAmount * operator.fx.rate : null);
+    return localAmount != null ? formatLocalAmount(localAmount, localCode as string) : `$${usdAmount}`;
+  }
 
   function handleCustomChange(v: string) {
     setCustomValue(v);
@@ -61,7 +88,7 @@ export function PackageGrid({
               (localAmount != null ? operator.localFixedAmountsDescriptions?.[String(localAmount)] : undefined);
             const description = rawDescription ? cleanPackageDescription(rawDescription) : null;
 
-            const primaryPrice = localAmount != null && localCode ? formatLocalAmount(localAmount, localCode) : `$${usdAmount}`;
+            const primaryPrice = localPriceFor(usdAmount, localAmount);
             const secondaryTokenAmount = tokenTotalFor(usdAmount, tokenPrice, feeBps);
 
             const active = selectedAmount === usdAmount;
@@ -104,10 +131,9 @@ export function PackageGrid({
           />
           {(operator.minAmount || operator.maxAmount) && (
             <p className="text-[11px] text-ink-muted mt-1">
-              Limits:{" "}
-              {operator.localMinAmount != null && localCode ? formatLocalAmount(operator.localMinAmount, localCode) : `$${operator.minAmount ?? 0}`}
+              Limits: {localPriceFor(operator.minAmount ?? 0, operator.localMinAmount)}
               {" – "}
-              {operator.localMaxAmount != null && localCode ? formatLocalAmount(operator.localMaxAmount, localCode) : `$${operator.maxAmount ?? "—"}`}
+              {operator.maxAmount != null ? localPriceFor(operator.maxAmount, operator.localMaxAmount) : "—"}
             </p>
           )}
         </div>
