@@ -2,7 +2,7 @@
 
 **Borderless P2P Finance, Built for Speed and Trust**
 
-Premium P2P stablecoin dApp on **Arc Testnet**.  
+Premium P2P stablecoin dApp.
 Send USDC/EURC/cirBTC, trade P2P for local fiat with merchants, top up airtime/data, and move USDC cross-chain via Circle CCTP.
 
 🔗 **Live Demo**: [https://vlitepay.com](https://vlitepay.com)
@@ -121,72 +121,43 @@ Backend (backend/.env)
 the glowing "V" logo front and center) is the only thing rendered until a wallet connects or a
 Circle email session completes; only then does the header, nav, and the rest of the app mount.
 
-- **Wallet & auth** — WalletConnect / injected / Coinbase via wagmi, plus a Circle Programmable
-Wallets email-login scaffold (backend token issuance stubbed, ready for real Circle API keys).
+- **Wallet Support** — WalletConnect, injected wallets + Circle Programmable Wallets (email login)
 
 - **Home** — live on-chain USDC/EURC/cirBTC balances, 7d/30d portfolio chart (area + allocation
 pie), quick actions, live-trade social proof feed.
 
-- **Transfer & Deposit** — send by username or address (with QR scanning via device camera),
-same-chain transfers with a configurable protocol fee, cross-chain USDC sends via Circle CCTP
-with a destination-chain selector, deposit QR codes per token, on-chain username registry
-(register/search/lookup).
+- **Transfer & Deposit** — Send by username or address, QR support, same-chain + cross-chain USDC via CCTP
 
-- **P2P trading** — currency-pair browsing, buy/sell offer lists, offer detail with live
-balance/USD/fiat display before locking escrow, full escrow lifecycle (lock → fiat-marked →
-release/dispute/cancel), a persistent active-trade banner, merchant mini-chat with payment-proof
-uploads, disputes, and post-trade 1–5 star ratings with a confetti celebration.
-
-- **Maker/taker P2P fees** — independently configurable: a **maker fee (default 1%)** charged to
-whoever deposits crypto into escrow (the merchant on a `MerchantSells` offer, or the taker on a
-`MerchantBuys` offer — the fee follows the deposit, not the offer poster, by design), added on
-top of the trade amount they lock; and a **taker fee (default 0%)** that would be deducted from
-the buyer's payout if the owner ever sets it above zero. Both are snapshotted on the trade at
-accept time so a later fee change never affects an already-locked trade, both survive dispute
-resolution (the maker fee always reaches treasury; the taker fee scales with whatever share the
-buyer is actually awarded), and a cancelled trade refunds the depositor in full, fee included.
-The exact split is always shown before the trade is accepted — buyer sees "no fee for you" when
-the taker fee is 0%, and the depositor sees the fee added to their total debit line.
-
-- **Profile** — editable avatar, bio, social links, bank details per region/currency, on-chain P2P
-trade history (replayed from `TradeLocked` logs), and a merchant application shortcut.
+- **P2P Trading** — Escrow-based Buy/Sell offers with fiat, timers, disputes, ratings, and merchant mini-chat
 
 - **MyShop** — merchant application flow, offer posting, pause/resume, and per-offer performance
 stats (views/trades/volume).
 
-- **Admin** — owner/arbiter-gated merchant management, dispute dashboard (with a simulated AI
-receipt analyzer — see limitations below), and protocol settings (fees, timers, arbiters,
-supported tokens/fiat).
+- **Top Up** — Airtime & data top-ups via Reloadly (Africa, Asia and beyond)
 
-- **Top Up** (formerly "Airtime", route `/topup`) — Reloadly sandbox integration: country selector,
-live network-operator lookup per country (MTN, Glo, 9mobile, etc. — fetched from Reloadly), an
-Airtime/Data toggle (distinguishing phone credit from data bundles within the Top Up flow), fixed package
-selection (with data-bundle descriptions where Reloadly provides them) plus a custom-amount
-fallback, USDC/EURC payment with live fee math, and a backend webhook handler.
+- **Username Registry** — On-chain username → wallet resolution
 
-- **FAQ & Support** — a searchable glassmorphism FAQ page with detailed step-by-step guides for the
-P2P trade flow, becoming a merchant, dispute resolution, and how the escrow timer/release works,
-plus a team contact card (email + social links) that's editable by the owner from Admin > Settings.
-Linked from Profile.
+- **Profile** — editable avatar, bio, social links, bank details per region/currency, on-chain P2P
+trade history (replayed from `TradeLocked` logs), and a merchant application shortcut.
 
-- **Notifications** — a bell icon in the header with a glassmorphism dropdown of recent activity,
-unread badge count, and browser push notifications (with a permission-request prompt). Covers
-every key activity: P2P trade lifecycle (offer accepted, funds locked, fiat sent, release,
-dispute, rating — including passive updates for whichever party didn't trigger the action),
-top-up (airtime/data) success and failure, merchant application submission and a one-time approval
-notification, username registration, and same-chain/CCTP cross-chain sends. Persisted via Zustand.
+- **Admin & Merchant Tools** — Offer management, dispute resolution, fee configuration, add arbiter
 
+- **FAQ & Support** 
+
+- **Notifications**
+
+- **Modern UI** — Dark/light mode, glassmorphism, portfolio chart, mobile-first
 ---
 
 ## Known Limitations (Testnet)
 
-•  Circle email login is UI-complete. Full on-chain actions currently work best with WalletConnect / injected wallets.
+• Profile data (avatar, bio, bank details) is currently stored locally in the browser.
 
-•  Profile data (avatar, bio, bank details) is currently local to the browser.
+• AI receipt analyzer for disputes is still simulated.
 
-•  AI receipt analyzer for disputes is simulated.
+• Payment proofs and trade chat messages are stored client-side for the MVP (will move to Supabase).
 
-•  Payment proofs are stored client-side for the MVP.
+• Some advanced merchant and referral features are not yet fully active.
 
 ---
 
