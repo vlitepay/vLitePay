@@ -10,11 +10,14 @@ export function BalanceList({
   balances,
   prices,
   statuses,
+  hidden = false,
 }: {
   balances: Record<TokenSymbol, number>;
   prices: Record<TokenSymbol, number>;
   /** Optional — when provided, a failed on-chain read is shown distinctly from a confirmed zero balance. */
   statuses?: Record<TokenSymbol, TokenReadStatus>;
+  /** Mirrors the Home screen's portfolio-value eye toggle — masks amounts here too, per that same preference. */
+  hidden?: boolean;
 }) {
   const symbols = Object.keys(TOKENS) as TokenSymbol[];
 
@@ -53,9 +56,9 @@ export function BalanceList({
                 </p>
               ) : (
                 <>
-                  <p className="stat-mono font-semibold">{formatTokenAmount(amount, symbol)}</p>
+                  <p className="stat-mono font-semibold">{hidden ? "••••" : formatTokenAmount(amount, symbol)}</p>
                   <p className="text-xs text-ink-muted stat-mono">
-                    {usd.toLocaleString("en-US", { style: "currency", currency: "USD" })}
+                    {hidden ? "••••" : usd.toLocaleString("en-US", { style: "currency", currency: "USD" })}
                   </p>
                 </>
               )}

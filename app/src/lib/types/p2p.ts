@@ -72,6 +72,20 @@ export interface ChatMessage {
   senderAddress?: `0x${string}`;
   text?: string;
   proofDataUrl?: string; // payment proof image, stored as data URL until backend upload endpoint lands
+  /**
+   * Set when this message is a "Share bank details" post from the seller
+   * (see components/p2p/TradeChat.tsx) rather than freeform text — a
+   * snapshot of one of the sender's saved BankAccount entries (see
+   * store/useProfileStore.ts) at the moment it was shared, so it stays
+   * accurate in the chat history even if the sender edits/removes that
+   * saved account later.
+   */
+  bankDetails?: {
+    bankName: string;
+    accountName: string;
+    accountNumber: string;
+    currency: string;
+  };
   timestamp: number;
 }
 

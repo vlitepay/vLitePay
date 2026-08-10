@@ -37,6 +37,10 @@ interface VLiteState {
   // --- First-action onboarding prompt (hidden permanently after first success) ---
   hasCompletedFirstAction: boolean;
   markFirstActionComplete: () => void;
+
+  // --- Home screen "hide balances" privacy toggle ---
+  portfolioHidden: boolean;
+  togglePortfolioHidden: () => void;
 }
 
 export const useVLiteStore = create<VLiteState>()(
@@ -68,6 +72,9 @@ export const useVLiteStore = create<VLiteState>()(
 
       hasCompletedFirstAction: false,
       markFirstActionComplete: () => set({ hasCompletedFirstAction: true }),
+
+      portfolioHidden: false,
+      togglePortfolioHidden: () => set((s) => ({ portfolioHidden: !s.portfolioHidden })),
     }),
     {
       name: "vlitepay-store",
@@ -78,6 +85,8 @@ export const useVLiteStore = create<VLiteState>()(
         theme: s.theme,
         activeTradeId: s.activeTradeId,
         hasCompletedFirstAction: s.hasCompletedFirstAction,
+        portfolioHistory: s.portfolioHistory,
+        portfolioHidden: s.portfolioHidden,
       }),
     }
   )

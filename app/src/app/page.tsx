@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { PortfolioChart } from "@/components/PortfolioChart";
 import { GetStartedCard } from "@/components/GetStartedCard";
 import { BalanceList } from "@/components/BalanceList";
@@ -9,25 +9,22 @@ import { ActivityFeed } from "@/components/ActivityFeed";
 import { PullToRefresh } from "@/components/PullToRefresh";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
 import { useExchangeRates } from "@/hooks/useExchangeRates";
+import { useVLiteStore } from "@/store/useVLiteStore";
 import { TokenSymbol } from "@/lib/constants";
 
-// Deterministic placeholder trend generator — replaced by real on-chain/
-// indexed history in a later pass once balance snapshots are recorded.
-function buildHistory(currentTotal: number, days: number) {
-  const points = [];
-  const now = Date.now();
-  let seed = currentTotal || 1000;
-  for (let i = days; i >= 0; i--) {
-    seed = seed + Math.sin(i * 1.3) * (currentTotal * 0.015 || 8) - (currentTotal * 0.002 || 1);
-    points.push({ timestamp: now - i * 86_400_000, valueUsd: Math.max(seed, 0) });
-  }
-  if (points.length) points[points.length - 1].valueUsd = currentTotal;
-  return points;
-}
+const DAY_MS = 86_400_000;
+// Don't append a new history point more than once every 30 minutes — the
+// user having the app open shouldn't spam the stored series; instead the
+// most recent point just gets updated in place until this interval passes.
+const MIN_SNAPSHOT_INTERVAL_MS = 30 * 60 * 1000;
 
 export default function HomePage() {
   const { balances, statuses, isConnected, refetch: refetchBalances } = useTokenBalances();
   const { rates, refetch: refetchRates } = useExchangeRates();
+  const portfolioHistory = useVLiteStore((s) => s.portfolioHistory);
+  const setPortfolioHistory = useVLiteStore((s) => s.setPortfolioHistory);
+  const portfolioHidden = useVLiteStore((s) => s.portfolioHidden);
+  const togglePortfolioHidden = useVLiteStore((s) => s.togglePortfolioHidden);
 
   async function handleRefresh() {
     await Promise.all([refetchBalances(), refetchRates()]);
@@ -44,10 +41,54 @@ export default function HomePage() {
     [balances, prices]
   );
 
-  const history = useMemo(
-    () => ({ "7d": buildHistory(totalUsd, 7), "30d": buildHistory(totalUsd, 30) }),
-    [totalUsd]
-  );
+  // Records a REAL snapshot of the portfolio's total value each time it's
+  // known, rather than synthesizing a plausible-looking trend line — this
+  // used to be a deterministic sine-wave generator that had no relationship
+  // to the actual portfolio at all, which is why the trend arrow could show
+  // red even while the balance was rising. Snapshots persist in
+  // useVLiteStore (see partialize there) and accumulate into real 7d/30d
+  // history over time.
+  useEffect(() => {
+    if (totalUsd <= 0) return; // don't record while balances haven't loaded yet — that would record a false zero
+    const now = Date.now();
+
+    (["7d", "30d"] as const).forEach((range) => {
+      const days = range === "7d" ? 7 : 30;
+      const cutoff = now - days * DAY_MS;
+      const pruned = portfolioHistory[range].filter((p) => p.timestamp >= cutoff);
+      const last = pruned[pruned.length - 1];
+
+      if (last && now - last.timestamp < MIN_SNAPSHOT_INTERVAL_MS) {
+        setPortfolioHistory(range, [...pruned.slice(0, -1), { timestamp: now, valueUsd: totalUsd }]);
+      } else {
+        setPortfolioHistory(range, [...pruned, { timestamp: now, valueUsd: totalUsd }]);
+      }
+    });
+    // Deliberately excludes portfolioHistory/setPortfolioHistory — this
+    // should only re-run when the portfolio's actual value changes, not
+    // every time it writes its own update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalUsd]);
+
+  // Until enough real snapshots have accumulated, show an honest flat line
+  // at the current value instead of a fabricated up/down shape — no fake
+  // movement, and the trend indicator (computed in PortfolioChart from
+  // first vs last point) naturally reads as neutral for a flat line rather
+  // than defaulting to a misleading red.
+  const history = useMemo(() => {
+    const withFallback = (points: typeof portfolioHistory["7d"], days: number) => {
+      if (points.length >= 2) return points;
+      const now = Date.now();
+      return [
+        { timestamp: now - days * DAY_MS, valueUsd: totalUsd },
+        { timestamp: now, valueUsd: totalUsd },
+      ];
+    };
+    return {
+      "7d": withFallback(portfolioHistory["7d"], 7),
+      "30d": withFallback(portfolioHistory["30d"], 30),
+    };
+  }, [portfolioHistory, totalUsd]);
 
   return (
     <PullToRefresh onRefresh={handleRefresh}>
@@ -58,7 +99,14 @@ export default function HomePage() {
           </div>
         )}
 
-        <PortfolioChart totalUsd={totalUsd} balances={balances} prices={prices} history={history} />
+        <PortfolioChart
+          totalUsd={totalUsd}
+          balances={balances}
+          prices={prices}
+          history={history}
+          hidden={portfolioHidden}
+          onToggleHidden={togglePortfolioHidden}
+        />
 
         <GetStartedCard />
 
@@ -66,7 +114,7 @@ export default function HomePage() {
 
         <div>
           <h2 className="text-sm font-semibold text-ink-muted mb-2 px-1">Your assets</h2>
-          <BalanceList balances={balances} prices={prices} statuses={statuses} />
+          <BalanceList balances={balances} prices={prices} statuses={statuses} hidden={portfolioHidden} />
         </div>
 
         <ActivityFeed />
