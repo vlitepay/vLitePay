@@ -19,6 +19,10 @@ interface P2PState {
   // --- Local mini-chat (Socket.io-ready: swap this for real-time events later) ---
   messagesByTrade: Record<number, ChatMessage[]>;
   addMessage: (tradeId: number, message: ChatMessage) => void;
+  /** Replaces a trade's message list wholesale — used to seed messages
+   * loaded from Supabase (lib/chatClient.ts) on mount/poll, distinct from
+   * addMessage's append-only semantics. */
+  setMessages: (tradeId: number, messages: ChatMessage[]) => void;
 }
 
 export const useP2PStore = create<P2PState>()(
@@ -40,6 +44,10 @@ export const useP2PStore = create<P2PState>()(
             ...s.messagesByTrade,
             [tradeId]: [...(s.messagesByTrade[tradeId] ?? []), message],
           },
+        })),
+      setMessages: (tradeId, messages) =>
+        set((s) => ({
+          messagesByTrade: { ...s.messagesByTrade, [tradeId]: messages },
         })),
     }),
     { name: "vlitepay-p2p-store" }

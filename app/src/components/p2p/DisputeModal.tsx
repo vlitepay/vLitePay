@@ -1,24 +1,67 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertOctagon, X } from "lucide-react";
+import { AlertOctagon, Paperclip, X, FileCheck2, Loader2 } from "lucide-react";
+import { useAccount } from "wagmi";
 import { useEscrowActions } from "@/hooks/useEscrowActions";
+import { uploadEvidenceClient } from "@/lib/uploadEvidenceClient";
 import { notify } from "@/lib/notify";
 
 export function DisputeModal({ tradeId, onResolved }: { tradeId: bigint; onResolved?: () => void }) {
+  const { address } = useAccount();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "error">("idle");
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { raiseDispute, busy, error } = useEscrowActions();
+
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const selected = e.target.files?.[0];
+    e.target.value = "";
+    if (!selected) return;
+    setFile(selected);
+    setUploadStatus("idle");
+    setUploadError(null);
+  }
 
   async function handleSubmit() {
     if (!reason.trim()) return;
-    // NOTE: evidenceURI is a free-text description for now. Phase 4/5 should
-    // upload attached screenshots to IPFS (via the backend's Multer/IPFS
-    // endpoint) and store the resulting URI here instead of raw text.
-    const hash = await raiseDispute(tradeId, reason.trim());
+
+    // If evidence is attached, upload it FIRST via the secure nonce -> sign
+    // -> POST flow (lib/uploadEvidenceClient.ts) and only proceed to
+    // raiseDispute once that succeeds — a dispute shouldn't claim evidence
+    // that never actually made it to storage. `evidenceURI` on-chain is a
+    // plain string (see useEscrowActions.raiseDispute), so no contract
+    // change is needed: the signed URL is appended to the reason text
+    // rather than replacing it, staying backward-compatible with how
+    // arbiters already read this field in DisputeCard.tsx.
+    let evidenceURI = reason.trim();
+
+    if (file) {
+      if (!address) {
+        setUploadStatus("error");
+        setUploadError("No wallet connected.");
+        return;
+      }
+      setUploadStatus("uploading");
+      setUploadError(null);
+      const result = await uploadEvidenceClient(address, file);
+      if (!result.ok) {
+        setUploadStatus("error");
+        setUploadError(result.error);
+        return;
+      }
+      setUploadStatus("idle");
+      evidenceURI = `${reason.trim()}\n\nEvidence: ${result.signedUrl}`;
+    }
+
+    const hash = await raiseDispute(tradeId, evidenceURI);
     if (hash) {
       setOpen(false);
+      setFile(null);
       notify({
         category: "p2p_trade",
         title: `Dispute raised — trade #${tradeId}`,
@@ -28,6 +71,8 @@ export function DisputeModal({ tradeId, onResolved }: { tradeId: bigint; onResol
       onResolved?.();
     }
   }
+
+  const isBusy = busy || uploadStatus === "uploading";
 
   return (
     <>
@@ -77,14 +122,59 @@ export function DisputeModal({ tradeId, onResolved }: { tradeId: bigint; onResol
                 className="w-full rounded-xl px-3 py-2.5 bg-white/50 dark:bg-white/5 border border-white/30 dark:border-white/10 text-sm outline-none focus:ring-2 focus:ring-danger resize-none"
               />
 
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,application/pdf"
+                className="hidden"
+                onChange={handleFileSelect}
+              />
+
+              {file ? (
+                <div className="flex items-center justify-between mt-2 rounded-xl px-3 py-2 bg-white/40 dark:bg-white/5 border border-white/30 dark:border-white/10">
+                  <span className="flex items-center gap-1.5 text-xs font-medium truncate">
+                    <FileCheck2 size={13} className="text-emerald-500 shrink-0" />
+                    <span className="truncate">{file.name}</span>
+                  </span>
+                  <button
+                    onClick={() => {
+                      setFile(null);
+                      setUploadStatus("idle");
+                      setUploadError(null);
+                    }}
+                    aria-label="Remove attachment"
+                    className="shrink-0"
+                  >
+                    <X size={13} className="text-ink-muted" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full mt-2 flex items-center justify-center gap-1.5 text-xs font-medium text-ink-muted hover:text-ink-light dark:hover:text-ink-dark py-1.5"
+                >
+                  <Paperclip size={13} />
+                  Attach evidence (optional)
+                </button>
+              )}
+
+              {uploadStatus === "error" && uploadError && <p className="text-xs text-danger mt-2">{uploadError}</p>}
               {error && <p className="text-xs text-danger mt-2">{error}</p>}
 
               <button
                 onClick={handleSubmit}
-                disabled={busy || !reason.trim()}
-                className="w-full mt-3 rounded-2xl py-3 text-sm font-semibold bg-danger text-white disabled:opacity-50 active:scale-[0.97] transition-transform"
+                disabled={isBusy || !reason.trim()}
+                className="w-full mt-3 rounded-2xl py-3 text-sm font-semibold bg-danger text-white disabled:opacity-50 active:scale-[0.97] transition-transform flex items-center justify-center gap-1.5"
               >
-                {busy ? "Submitting…" : "Submit dispute"}
+                {uploadStatus === "uploading" ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" /> Uploading evidence…
+                  </>
+                ) : busy ? (
+                  "Submitting…"
+                ) : (
+                  "Submit dispute"
+                )}
               </button>
             </motion.div>
           </motion.div>

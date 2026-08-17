@@ -5,6 +5,11 @@
 @layer base {
   html {
     -webkit-tap-highlight-color: transparent;
+    /* Same variable names next/font/google previously generated — kept
+       identical so tailwind.config's fontFamily.sans/mono, and every
+       component using font-sans/font-mono, need no changes. */
+    --font-inter: "Inter", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, monospace;
   }
 
   body {

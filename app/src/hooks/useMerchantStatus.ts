@@ -27,7 +27,21 @@ export function useMerchantStatus() {
         args: [address ?? "0x0000000000000000000000000000000000000000"],
       },
     ],
-    query: { enabled: !!address && !!CONTRACTS.p2pEscrow },
+    query: {
+      enabled: !!address && !!CONTRACTS.p2pEscrow,
+      refetchOnWindowFocus: true,
+      // A user sitting on the "Application pending" screen (MyShop) has no
+      // other way to learn an admin approved them short of a manual reload
+      // — same rationale as useTrade.ts's conditional polling. Poll only
+      // while pending; approved is a stable end state (matches "settled"
+      // in useTrade), so stop once reached rather than polling forever for
+      // every already-approved merchant visiting MyShop.
+      refetchInterval: (query) => {
+        const approved = query.state.data?.[0]?.result as boolean | undefined;
+        const pending = query.state.data?.[1]?.result as boolean | undefined;
+        return pending && !approved ? 15_000 : false;
+      },
+    },
   });
 
   const isApproved = data?.[0]?.status === "success" ? (data[0].result as boolean) : false;

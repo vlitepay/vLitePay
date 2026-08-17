@@ -1,54 +1,98 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useAccount } from "wagmi";
 import { Paperclip, Send, Landmark, X } from "lucide-react";
 import { useP2PStore } from "@/store/useP2PStore";
 import { useProfileStore } from "@/store/useProfileStore";
 import { ChatMessage } from "@/lib/types/p2p";
+import { loadChatMessages, sendChatMessage } from "@/lib/chatClient";
+
+/** How often to re-poll Supabase for new messages while the chat is open —
+ * light polling per this step's scope, not realtime. */
+const CHAT_POLL_INTERVAL_MS = 8_000;
 
 /**
- * Local mini-chat for a trade. Messages are stored client-side (Zustand,
- * persisted) for now — this component is Socket.io-ready: swap `addMessage`
- * for a socket emit + listener pair once the backend chat gateway lands,
- * without changing the UI.
- *
- * TODO (real chat + Supabase): this whole component currently reads/writes
- * useP2PStore's `messagesByTrade` (local browser storage only — the
- * counterparty on a different device/browser won't see these messages).
- * When the real chat backend lands:
- *   1. Replace `messages` above with a Supabase realtime subscription (or
- *      socket listener) scoped to this tradeId, seeded from an initial
- *      fetch of chat history.
- *   2. Replace `addMessage()`'s local `send()` call with an insert into the
- *      Supabase `trade_messages` table (or equivalent socket emit) — keep
- *      the same ChatMessage shape so no UI changes are needed here.
- *   3. The "Share bank details" flow below composes the same ChatMessage
- *      shape (with `bankDetails` populated) as any other message, so it
- *      needs no special handling once step 2 is done — it'll just be
- *      inserted like any other message.
+ * Mini-chat for a trade, now backed by Supabase (see lib/chatClient.ts,
+ * app/api/chat/*) with local Zustand storage as the always-on fallback:
+ *   - On mount and on a light poll, previous messages load from Supabase
+ *     and replace the local list for this trade — but ONLY when the load
+ *     succeeds and returns at least one message, or when there's no local
+ *     history yet. A failed load, or an empty remote result while local
+ *     history already exists, leaves local data exactly as it was — chat
+ *     never appears to "lose" messages just because Supabase hiccupped.
+ *   - Sending still adds the message to local state immediately
+ *     (optimistic, same instant feedback as before) and separately
+ *     persists it through the secure nonce -> sign -> POST flow. If that
+ *     persist fails, the message stays visible locally (nothing
+ *     disappears) but a clear inline error explains it wasn't saved to the
+ *     cloud, per this step's explicit "don't pretend it succeeded" rule.
  */
 export function TradeChat({ tradeId, myRole }: { tradeId: number; myRole: "buyer" | "seller" }) {
   const { address } = useAccount();
   const messages = useP2PStore((s) => s.messagesByTrade[tradeId] ?? []);
   const addMessage = useP2PStore((s) => s.addMessage);
+  const setMessages = useP2PStore((s) => s.setMessages);
   const bankAccounts = useProfileStore((s) => s.getProfile(address).bankAccounts);
   const [text, setText] = useState("");
   const [showBankPicker, setShowBankPicker] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // TODO (Supabase): once chat is backed by Supabase, this becomes an insert
-  // into `trade_messages` (see component doc comment above) — the shape
-  // posted stays identical, so nothing else here needs to change.
+  useEffect(() => {
+    if (!address) return;
+
+    let cancelled = false;
+
+    async function load() {
+      const remote = await loadChatMessages(tradeId, address as string);
+      if (cancelled || !remote) return; // load failed -> keep local as-is
+      const currentLocal = useP2PStore.getState().messagesByTrade[tradeId] ?? [];
+      if (remote.length > 0 || currentLocal.length === 0) {
+        setMessages(tradeId, remote);
+      }
+      // else: remote came back empty but local already has history for
+      // this trade (Supabase just hasn't seen it yet) -> leave local alone.
+    }
+
+    load();
+    const interval = setInterval(load, CHAT_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [tradeId, address, setMessages]);
+
   function send(partial: Partial<ChatMessage>) {
-    addMessage(tradeId, {
+    const localMessage: ChatMessage = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       tradeId,
       sender: myRole,
       senderAddress: address,
       timestamp: Date.now(),
       ...partial,
+    };
+    // Optimistic: shows instantly, unchanged from prior behavior.
+    addMessage(tradeId, localMessage);
+    setSendError(null);
+
+    if (!address) return;
+
+    sendChatMessage({
+      tradeId,
+      wallet: address,
+      senderRole: myRole,
+      text: partial.text,
+      proofUrl: partial.proofDataUrl,
+      bankDetails: partial.bankDetails,
+    }).then((result) => {
+      if (!result.ok) {
+        // Message stays visible locally (nothing removed/hidden) — this is
+        // purely "it wasn't saved to the cloud yet," surfaced clearly per
+        // this step's rule, not a silent failure.
+        setSendError(`Not saved to cloud: ${result.error}`);
+      }
     });
   }
 
@@ -172,6 +216,8 @@ export function TradeChat({ tradeId, myRole }: { tradeId: number; myRole: "buyer
           )}
         </div>
       )}
+
+      {sendError && <p className="px-4 pb-1 text-[11px] text-danger">{sendError}</p>}
 
       <div className="p-3 border-t border-white/15 dark:border-white/5 flex items-center gap-2">
         <input

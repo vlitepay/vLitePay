@@ -12,6 +12,18 @@ const symbolByAddress: Record<string, TokenSymbol> = Object.fromEntries(
 );
 
 /**
+ * An admin sitting on the disputes dashboard has no way to see a NEW
+ * dispute someone just raised without reloading — this hook only fetched
+ * once. Safe to poll: it already uses the multicall scan pattern
+ * (nextTradeId + getTrade), not `eth_getLogs`, so unlike
+ * useMerchantApplications.ts (deliberately left unpolled — see that file),
+ * there's no unreliable-RPC-call concern here. 15s: admin-only, lower
+ * traffic than the public Buy/Sell list, so no need to match useOffers.ts's
+ * tighter 12s.
+ */
+const DISPUTED_TRADES_POLL_INTERVAL_MS = 15_000;
+
+/**
  * RELIABILITY FIX: this previously discovered disputed trades by replaying
  * `DisputeRaised` event logs from block 0 (`getContractEvents` with
  * `fromBlock: 0n`) — the exact `eth_getLogs` pattern that turned out to be
@@ -39,7 +51,11 @@ export function useDisputedTrades() {
     address: CONTRACTS.p2pEscrow,
     abi: p2pEscrowAbi,
     functionName: "nextTradeId",
-    query: { enabled: !!CONTRACTS.p2pEscrow },
+    query: {
+      enabled: !!CONTRACTS.p2pEscrow,
+      refetchInterval: DISPUTED_TRADES_POLL_INTERVAL_MS,
+      refetchOnWindowFocus: true,
+    },
   });
 
   const nextId = nextIdData ? Number(nextIdData) : 1;
@@ -57,7 +73,11 @@ export function useDisputedTrades() {
       functionName: "getTrade" as const,
       args: [BigInt(id)] as const,
     })),
-    query: { enabled: ids.length > 0 && !!CONTRACTS.p2pEscrow },
+    query: {
+      enabled: ids.length > 0 && !!CONTRACTS.p2pEscrow,
+      refetchInterval: DISPUTED_TRADES_POLL_INTERVAL_MS,
+      refetchOnWindowFocus: true,
+    },
   });
 
   const freshAllTrades: Trade[] | null = useMemo(() => {

@@ -1,6 +1,38 @@
 import { defineChain } from "viem";
 
 /**
+ * Supabase Storage bucket names. Buckets themselves (with size limits, MIME
+ * restrictions, and RLS policies) are created via the SQL migration run in
+ * Supabase's SQL Editor — these constants just avoid hardcoding bucket-id
+ * strings once an upload path is eventually built (lib/supabase-admin.ts,
+ * for a future service-role upload route).
+ *
+ * `avatars` — public read, profile pictures.
+ * `evidence` — private, future payment-proof / dispute files.
+ *
+ * Not used anywhere yet; no upload/download logic exists at this stage.
+ */
+export const STORAGE_BUCKETS = {
+  avatars: "avatars",
+  evidence: "evidence",
+} as const;
+
+export type StorageBucket = (typeof STORAGE_BUCKETS)[keyof typeof STORAGE_BUCKETS];
+
+/**
+ * Server-side validation limits for uploads to the `evidence` bucket —
+ * intentionally identical to that bucket's SQL-level `file_size_limit`/
+ * `allowed_mime_types` (see the storage migration). Supabase itself already
+ * enforces these at the bucket level, but checking here too lets the API
+ * route (app/api/evidence/upload/route.ts) return a clear error before
+ * attempting the upload, rather than surfacing a raw Storage error.
+ */
+export const EVIDENCE_UPLOAD_LIMITS = {
+  maxSizeBytes: 10 * 1024 * 1024, // 10 MB — matches the SQL migration
+  allowedMimeTypes: ["image/png", "image/jpeg", "image/webp", "application/pdf"] as const,
+};
+
+/**
  * Arc Testnet chain definition for viem/wagmi.
  *
  * `contracts.multicall3` is set explicitly to Arc's confirmed-deployed

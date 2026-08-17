@@ -12,6 +12,23 @@ const symbolByAddress: Record<string, TokenSymbol> = Object.fromEntries(
 );
 
 /**
+ * ActiveTradeBanner.tsx is mounted on every page and uses this hook's
+ * `trades` list purely to auto-discover a trade this wallet is newly party
+ * to but never personally triggered a transaction for (the merchant side of
+ * an accepted offer — see that component's doc comment for the full
+ * history of why this matters). Without polling, that discovery only ever
+ * ran once per mount, so a merchant browsing the app could sit right past
+ * a new trade needing their attention until they happened to navigate
+ * somewhere that remounted the hook. 20s is deliberately longer than
+ * useOffers.ts's 12s: this hook scans trade ids on every page via the
+ * global banner, not just one dedicated Buy/Sell screen, so a longer
+ * interval keeps background RPC load reasonable while still being far
+ * better than "never" for something as time-sensitive as noticing you have
+ * a trade to act on.
+ */
+const TRADE_HISTORY_POLL_INTERVAL_MS = 20_000;
+
+/**
  * P2PEscrow doesn't keep a per-user trade index on-chain. This previously
  * replayed `TradeLocked` event logs from block 0 (`getContractEvents` with
  * `fromBlock: 0n`) to find every trade id — exactly the kind of `eth_getLogs`
@@ -48,7 +65,11 @@ export function useTradeHistory(address: `0x${string}` | undefined) {
     address: CONTRACTS.p2pEscrow,
     abi: p2pEscrowAbi,
     functionName: "nextTradeId",
-    query: { enabled: !!CONTRACTS.p2pEscrow },
+    query: {
+      enabled: !!CONTRACTS.p2pEscrow,
+      refetchInterval: TRADE_HISTORY_POLL_INTERVAL_MS,
+      refetchOnWindowFocus: true,
+    },
   });
 
   const nextId = nextIdData ? Number(nextIdData) : 1;
@@ -66,7 +87,11 @@ export function useTradeHistory(address: `0x${string}` | undefined) {
       functionName: "getTrade" as const,
       args: [BigInt(id)] as const,
     })),
-    query: { enabled: ids.length > 0 && !!CONTRACTS.p2pEscrow && !!address },
+    query: {
+      enabled: ids.length > 0 && !!CONTRACTS.p2pEscrow && !!address,
+      refetchInterval: TRADE_HISTORY_POLL_INTERVAL_MS,
+      refetchOnWindowFocus: true,
+    },
   });
 
   // `null` while the multicall hasn't resolved (or failed) at all yet — in

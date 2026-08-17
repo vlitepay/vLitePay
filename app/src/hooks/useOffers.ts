@@ -12,6 +12,22 @@ const symbolByAddress: Record<string, TokenSymbol> = Object.fromEntries(
 );
 
 /**
+ * How often the Buy/Sell offer list re-checks the chain while the P2P page
+ * is open, in addition to refetching on window focus. Buyers/sellers
+ * currently have to hard-refresh to see offers another merchant just
+ * posted/edited/paused — this closes that gap without adding an indexer or
+ * realtime infra. 12s is a deliberate middle ground: frequent enough that
+ * the list feels live, infrequent enough not to hammer the RPC endpoint.
+ *
+ * Note: components/Providers.tsx sets `refetchOnWindowFocus: false` and a
+ * 30s `staleTime` as the GLOBAL react-query default (correct for most
+ * reads — balances, trade history, etc. don't need to poll). The `query`
+ * options below override both, but only for this hook's two reads — every
+ * other query in the app keeps the existing global behavior unchanged.
+ */
+const OFFERS_POLL_INTERVAL_MS = 12_000;
+
+/**
  * Browses P2P offers for a token/fiat/side combination.
  *
  * NOTE: P2PEscrow doesn't expose an enumerable offer list on-chain (only a
@@ -36,7 +52,11 @@ export function useOffers(tokenSymbol: TokenSymbol, fiatCode: string, side: Offe
     address: CONTRACTS.p2pEscrow,
     abi: p2pEscrowAbi,
     functionName: "nextOfferId",
-    query: { enabled: !!CONTRACTS.p2pEscrow },
+    query: {
+      enabled: !!CONTRACTS.p2pEscrow,
+      refetchInterval: OFFERS_POLL_INTERVAL_MS,
+      refetchOnWindowFocus: true,
+    },
   });
 
   const nextId = nextIdData ? Number(nextIdData) : 1;
@@ -54,13 +74,32 @@ export function useOffers(tokenSymbol: TokenSymbol, fiatCode: string, side: Offe
       functionName: "getOffer" as const,
       args: [BigInt(id)] as const,
     })),
-    query: { enabled: ids.length > 0 && !!CONTRACTS.p2pEscrow },
+    query: {
+      enabled: ids.length > 0 && !!CONTRACTS.p2pEscrow,
+      refetchInterval: OFFERS_POLL_INTERVAL_MS,
+      refetchOnWindowFocus: true,
+    },
   });
 
   // `undefined` when the multicall hasn't resolved (or failed) at all yet —
   // in either case we must NOT treat that as "zero offers exist".
+  //
+  // There's a second, less obvious failure mode this also has to catch:
+  // wagmi's multicall wraps each individual `getOffer` call with
+  // allowFailure, so a bad-network condition (timeouts, dropped RPC
+  // responses) commonly resolves the QUERY successfully while every
+  // individual call inside it failed — `data` is a defined array, just one
+  // where nothing has `status === "success"`. Without checking for that,
+  // this filtered down to a legitimate-looking `[]`, which then overwrote
+  // the cache below and made a real offer list vanish on a network blip
+  // rather than staying on the last-known-good list. Genuinely zero
+  // matching offers (fetch succeeded, nothing matched this token/fiat/side)
+  // is unaffected — that path still requires at least one call to have
+  // actually succeeded.
   const freshOffers: Offer[] | null = useMemo(() => {
     if (!data) return null;
+    if (ids.length > 0 && !data.some((r) => r.status === "success")) return null;
+
     return data
       .map((result) => (result.status === "success" ? (result.result as any) : null))
       .filter(Boolean)
@@ -93,7 +132,7 @@ export function useOffers(tokenSymbol: TokenSymbol, fiatCode: string, side: Offe
           o.side === side
       )
       .sort((a, b) => Number(b.volume - a.volume)); // most active merchants surface first
-  }, [data, tokenSymbol, fiatCode, side]);
+  }, [data, ids, tokenSymbol, fiatCode, side]);
 
   // Persist only successful reads — this is the entire safe-fetch guarantee.
   useEffect(() => {

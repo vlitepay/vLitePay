@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAccount } from "wagmi";
-import { ShieldCheck, ChevronRight, LogIn, LifeBuoy } from "lucide-react";
+import { ShieldCheck, ChevronRight, LogIn, LifeBuoy, Cloud, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import clsx from "clsx";
 import { useAdminRole } from "@/hooks/useAdminRole";
@@ -28,7 +28,39 @@ export default function ProfilePage() {
   const { canAccessAdmin } = useAdminRole();
   const { data: username } = useMyUsername();
   const avatarDataUrl = useProfileStore((s) => s.getProfile(address).avatarDataUrl);
+  const loadFromSupabase = useProfileStore((s) => s.loadFromSupabase);
+  const saveToSupabase = useProfileStore((s) => s.saveToSupabase);
   const [tab, setTab] = useState<ProfileTab>("settings");
+  const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [syncError, setSyncError] = useState<string | null>(null);
+
+  // Explicit, user-triggered only — never called automatically on edits.
+  // Runs the existing secure nonce -> sign -> POST flow inside
+  // saveToSupabase, which never throws; local data is untouched regardless
+  // of outcome, this just reflects the result in the button/status text.
+  async function handleSync() {
+    if (!address) return;
+    setSyncStatus("saving");
+    setSyncError(null);
+    const result = await saveToSupabase(address);
+    if (result.ok) {
+      setSyncStatus("success");
+    } else {
+      setSyncStatus("error");
+      setSyncError(result.error);
+    }
+  }
+
+  // Best-effort Supabase load on mount when a wallet is connected. Purely
+  // additive/read-only — loadFromSupabase never throws and only fills in
+  // fields the local store doesn't already have, so if this fails or
+  // Supabase is unavailable, the page renders exactly as it did before
+  // this effect existed (local data only). No signature/write flow is
+  // triggered here.
+  useEffect(() => {
+    if (!address) return;
+    loadFromSupabase(address);
+  }, [address, loadFromSupabase]);
 
   if (!isConnected) {
     return (
@@ -78,6 +110,43 @@ export default function ProfilePage() {
 
           <div className="glass-panel p-5">
             <BankDetailsEditor />
+          </div>
+
+          <div className="glass-panel p-4 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="flex items-center gap-2.5 text-sm font-medium">
+                <Cloud size={16} className="text-vlite-cyan" /> Sync profile
+              </span>
+              <button
+                type="button"
+                onClick={handleSync}
+                disabled={syncStatus === "saving"}
+                className={clsx(
+                  "px-4 py-2 rounded-xl text-xs font-semibold transition-colors",
+                  syncStatus === "saving"
+                    ? "bg-white/5 text-ink-muted cursor-not-allowed"
+                    : "bg-vlite-gradient text-white hover:opacity-90"
+                )}
+              >
+                {syncStatus === "saving" ? (
+                  <span className="flex items-center gap-1.5">
+                    <Loader2 size={14} className="animate-spin" /> Syncing…
+                  </span>
+                ) : (
+                  "Sync profile"
+                )}
+              </button>
+            </div>
+            {syncStatus === "success" && (
+              <p className="text-xs text-emerald-400 flex items-center gap-1.5">
+                <CheckCircle2 size={14} /> Synced to cloud.
+              </p>
+            )}
+            {syncStatus === "error" && syncError && (
+              <p className="text-xs text-red-400 flex items-center gap-1.5">
+                <AlertCircle size={14} /> {syncError}
+              </p>
+            )}
           </div>
 
           <MerchantApplicationCard />
