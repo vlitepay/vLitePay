@@ -1,5 +1,6 @@
 "use client";
 
+import { SocialLoginProvider } from "@circle-fin/w3s-pw-web-sdk/dist/src/types";
 import { setCircleSession } from "./circleSession";
 import { getCircleSdk, setActiveLoginCallback } from "./circleSdk";
 
@@ -14,6 +15,9 @@ interface EmailLoginResult {
   userToken: string;
   encryptionKey: string;
 }
+
+/** Survives the full-page redirect to Google and back — see startGoogleLogin/completePendingGoogleLogin below. */
+const GOOGLE_LOGIN_PENDING_KEY = "vlitepay-google-login-pending";
 
 /**
  * Full Circle User-Controlled Wallets email OTP login, following Circle's
@@ -87,6 +91,170 @@ export async function loginWithEmail(email: string): Promise<CircleAuthSession> 
 
   // Make this session available to the circle-email wagmi connector so the
   // caller can immediately follow up with connect({ connector }).
+  setCircleSession({
+    address: session.walletAddress,
+    walletId: session.walletId,
+    userToken: session.userToken,
+    encryptionKey: session.encryptionKey,
+  });
+
+  return session;
+}
+
+/**
+ * Circle User-Controlled Wallets Google social login — split into two
+ * functions because, per Circle's own official reference implementation
+ * (verified by fetching developers.circle.com/wallets/user-controlled/
+ * build-a-wallet-app directly), performLogin() triggers a FULL TOP-LEVEL
+ * PAGE REDIRECT to Google's OAuth consent screen, not a same-page popup.
+ * That destroys this page's JS context, so a single async function that
+ * awaits a Promise the way loginWithEmail does (below) cannot work here —
+ * the promise would simply never resolve after the redirect-back, since
+ * the code awaiting it no longer exists.
+ *
+ * Circle's official example handles this by persisting the device-token
+ * pair (via cookies + the `cookies-next` package) and re-registering the
+ * onLoginComplete callback on every page mount, so a fresh page load after
+ * the redirect can still catch the result. This does the same thing using
+ * localStorage (this app's existing convention, e.g. circleSession.ts —
+ * no new dependency needed for what localStorage already covers for a
+ * same-origin round trip).
+ *
+ * `startGoogleLogin()` — call this from the button's onClick. Persists the
+ * device-token pair, configures the SDK, and calls performLogin(), which
+ * navigates the page away. Nothing after that call runs in this same
+ * invocation.
+ *
+ * `completePendingGoogleLogin()` — call this once on mount (e.g. a
+ * ConnectScreen useEffect). Checks for a pending login left by
+ * startGoogleLogin(); if found, reconstructs the SDK config and waits for
+ * Circle's redirect-detection to fire the login-complete callback,
+ * completing the exact same wallet-init/session-setup tail end as
+ * loginWithEmail. Resolves `null` immediately (no-op) if there's nothing
+ * pending, so it's safe to call unconditionally on every ConnectScreen
+ * mount.
+ */
+export async function startGoogleLogin(): Promise<void> {
+  const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+  if (!clientId) {
+    throw new Error("Google sign-in isn't configured on this environment yet — try email instead.");
+  }
+
+  const sdk = getCircleSdk();
+  const deviceId = await sdk.getDeviceId();
+
+  const sessionRes = await fetch("/api/circle/social-session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deviceId }),
+  });
+
+  if (!sessionRes.ok) {
+    const body = await sessionRes.json().catch(() => ({}));
+    throw new Error(body?.error || "Could not start Google sign-in");
+  }
+
+  const { deviceToken, deviceEncryptionKey } = await sessionRes.json();
+
+  localStorage.setItem(GOOGLE_LOGIN_PENDING_KEY, JSON.stringify({ deviceToken, deviceEncryptionKey }));
+
+  const redirectUri = process.env.NEXT_PUBLIC_GOOGLE_REDIRECT_URI || window.location.origin;
+
+  sdk.updateConfigs({
+    appSettings: { appId: process.env.NEXT_PUBLIC_CIRCLE_APP_ID || "" },
+    loginConfigs: {
+      deviceToken,
+      deviceEncryptionKey,
+      google: { clientId, redirectUri, selectAccountPrompt: true },
+    },
+  });
+
+  // Navigates the page to Google. Anything after this line in this
+  // specific call never runs — see completePendingGoogleLogin above.
+  await sdk.performLogin(SocialLoginProvider.GOOGLE);
+}
+
+export async function completePendingGoogleLogin(): Promise<CircleAuthSession | null> {
+  if (typeof window === "undefined") return null;
+
+  const raw = localStorage.getItem(GOOGLE_LOGIN_PENDING_KEY);
+  if (!raw) return null;
+
+  const clearPending = () => localStorage.removeItem(GOOGLE_LOGIN_PENDING_KEY);
+
+  let stored: { deviceToken: string; deviceEncryptionKey: string };
+  try {
+    stored = JSON.parse(raw);
+  } catch {
+    clearPending();
+    return null;
+  }
+
+  const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+  if (!clientId) {
+    clearPending();
+    return null;
+  }
+
+  const sdk = getCircleSdk();
+  const redirectUri = process.env.NEXT_PUBLIC_GOOGLE_REDIRECT_URI || window.location.origin;
+
+  // Reconstruct the same config the pre-redirect page had, and register
+  // the completion callback directly via updateConfigs's second param
+  // (rather than the activeLoginCallback trampoline used for email) —
+  // Circle's SDK detects the OAuth response already present in the URL
+  // and fires this on its own; performLogin() is NOT called again here.
+  //
+  // Bounded with a timeout: if nothing fires (e.g. the user closed the
+  // Google tab without completing sign-in and came back to this page
+  // later through some other route), this resolves null rather than
+  // leaving an unresolved promise hanging forever.
+  const loginResult = await new Promise<EmailLoginResult | null>((resolve) => {
+    let settled = false;
+    const settle = (value: EmailLoginResult | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+
+    const timeout = setTimeout(() => settle(null), 10_000);
+
+    sdk.updateConfigs(
+      {
+        appSettings: { appId: process.env.NEXT_PUBLIC_CIRCLE_APP_ID || "" },
+        loginConfigs: {
+          deviceToken: stored.deviceToken,
+          deviceEncryptionKey: stored.deviceEncryptionKey,
+          google: { clientId, redirectUri, selectAccountPrompt: true },
+        },
+      },
+      (error, result) => {
+        clearTimeout(timeout);
+        if (error || !result) {
+          settle(null);
+          return;
+        }
+        settle({ userToken: result.userToken, encryptionKey: result.encryptionKey });
+      }
+    );
+  });
+
+  clearPending();
+  if (!loginResult) return null;
+
+  // Identical to loginWithEmail's tail end from here — wallet
+  // initialization doesn't care how userToken/encryptionKey were obtained.
+  const wallet = await initializeAndCreateWallet(loginResult);
+
+  const session: CircleAuthSession = {
+    userToken: loginResult.userToken,
+    encryptionKey: loginResult.encryptionKey,
+    walletAddress: wallet.address,
+    walletId: wallet.id,
+  };
+
+  sdk.setAuthentication({ userToken: session.userToken, encryptionKey: session.encryptionKey });
+
   setCircleSession({
     address: session.walletAddress,
     walletId: session.walletId,

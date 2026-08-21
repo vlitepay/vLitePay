@@ -30,14 +30,20 @@ export function DisputeModal({ tradeId, onResolved }: { tradeId: bigint; onResol
   async function handleSubmit() {
     if (!reason.trim()) return;
 
-    // If evidence is attached, upload it FIRST via the secure nonce -> sign
-    // -> POST flow (lib/uploadEvidenceClient.ts) and only proceed to
-    // raiseDispute once that succeeds — a dispute shouldn't claim evidence
-    // that never actually made it to storage. `evidenceURI` on-chain is a
-    // plain string (see useEscrowActions.raiseDispute), so no contract
-    // change is needed: the signed URL is appended to the reason text
-    // rather than replacing it, staying backward-compatible with how
-    // arbiters already read this field in DisputeCard.tsx.
+    // If evidence is attached, upload it FIRST (no wallet signature — this
+    // is an off-chain Supabase Storage write, gated by an on-chain
+    // participant check server-side, not a signature; see
+    // app/api/evidence/upload/route.ts) and only proceed to raiseDispute
+    // once that succeeds — a dispute shouldn't claim evidence that never
+    // actually made it to storage. `evidenceURI` on-chain is a plain
+    // string (see useEscrowActions.raiseDispute), so no contract change is
+    // needed: the signed URL is appended to the reason text rather than
+    // replacing it, staying backward-compatible with how arbiters already
+    // read this field in DisputeCard.tsx.
+    //
+    // raiseDispute() below is the ONLY step in this whole flow that
+    // prompts a wallet confirmation — it's a real on-chain transaction.
+    // The evidence upload above never does.
     let evidenceURI = reason.trim();
 
     if (file) {
@@ -48,7 +54,7 @@ export function DisputeModal({ tradeId, onResolved }: { tradeId: bigint; onResol
       }
       setUploadStatus("uploading");
       setUploadError(null);
-      const result = await uploadEvidenceClient(address, file);
+      const result = await uploadEvidenceClient(address, Number(tradeId), file);
       if (!result.ok) {
         setUploadStatus("error");
         setUploadError(result.error);

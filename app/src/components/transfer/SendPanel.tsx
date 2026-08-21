@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { CheckCircle2, ExternalLink } from "lucide-react";
 import clsx from "clsx";
 import { TOKENS, TokenSymbol, CCTP_CHAINS } from "@/lib/constants";
+import { TokenIcon } from "@/components/TokenIcon";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
 import { useExchangeRates } from "@/hooks/useExchangeRates";
 import { useLocalSend, useCctpSend } from "@/hooks/useSend";
@@ -43,7 +44,7 @@ export function SendPanel() {
   const [amount, setAmount] = useState("");
   const [done, setDone] = useState<string | null>(null);
 
-  const { send, busy: localBusy, confirming: localConfirming, error: localError } = useLocalSend();
+  const { send, busy: localBusy, confirming: localConfirming, step: localStep, error: localError } = useLocalSend();
   const { sendCrossChain, busy: cctpBusy, confirming: cctpConfirming, error: cctpError } = useCctpSend();
   const markFirstActionComplete = useVLiteStore((s) => s.markFirstActionComplete);
   const busy = localBusy || cctpBusy;
@@ -132,10 +133,11 @@ export function SendPanel() {
                 if (t !== "USDC") setChain("arc");
               }}
               className={clsx(
-                "rounded-xl py-2 text-xs font-semibold transition-colors",
+                "rounded-xl py-2 text-xs font-semibold transition-colors flex flex-col items-center gap-1",
                 token === t ? "bg-vlite-gradient text-white shadow-glow" : "glass-panel-flush text-ink-muted"
               )}
             >
+              <TokenIcon symbol={t} size={18} />
               {t}
             </button>
           ))}
@@ -176,8 +178,24 @@ export function SendPanel() {
 
       {error && <p className="text-sm text-danger">{error}</p>}
 
+      {!isCrossChain && localBusy && localStep && (
+        <p className="text-xs text-ink-muted text-center -mt-1">
+          {localStep === "recipient"
+            ? "Step 1 of 2: sending to recipient — you'll confirm once more for the fee."
+            : "Step 2 of 2: sending the fee to complete this transfer."}
+        </p>
+      )}
+
       <button onClick={handleSend} disabled={!valid || busy} className="btn-vlite-primary w-full">
-        {confirming ? "Confirming on-chain…" : busy ? (isCrossChain ? "Bridging via CCTP…" : "Sending…") : "Send"}
+        {confirming
+          ? localStep
+            ? `Confirming ${localStep === "recipient" ? "transfer" : "fee"} on-chain…`
+            : "Confirming on-chain…"
+          : busy
+            ? isCrossChain
+              ? "Bridging via CCTP…"
+              : "Sending…"
+            : "Send"}
       </button>
     </div>
   );

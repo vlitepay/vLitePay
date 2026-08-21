@@ -6,6 +6,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { Copy, Check } from "lucide-react";
 import clsx from "clsx";
 import { TOKENS, TokenSymbol } from "@/lib/constants";
+import { TokenIcon } from "@/components/TokenIcon";
 import { useMyUsername } from "@/hooks/useUsernameRegistry";
 import { VLiteLogo } from "@/components/VLiteLogo";
 
@@ -34,10 +35,11 @@ export function DepositPanel() {
             key={t}
             onClick={() => setToken(t)}
             className={clsx(
-              "rounded-xl py-2 text-xs font-semibold transition-colors",
+              "rounded-xl py-2 text-xs font-semibold transition-colors flex flex-col items-center gap-1",
               token === t ? "bg-vlite-gradient text-white shadow-glow" : "glass-panel-flush text-ink-muted"
             )}
           >
+            <TokenIcon symbol={t} size={18} />
             {t}
           </button>
         ))}

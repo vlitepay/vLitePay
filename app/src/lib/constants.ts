@@ -85,6 +85,8 @@ export interface TokenConfig {
   decimals: number;
   color: string; // used for chart legends / badges
   icon: string; // simple emoji/glyph fallback; swap for SVG icons as design matures
+  /** Official Circle token logo, served from /public/tokens — see components/TokenIcon.tsx. */
+  iconSrc: string;
 }
 
 /** Arc Testnet token registry — addresses per project brief. Owner can extend via admin panel later. */
@@ -96,6 +98,7 @@ export const TOKENS: Record<TokenSymbol, TokenConfig> = {
     decimals: 6,
     color: "#22D3EE",
     icon: "$",
+    iconSrc: "/tokens/usdc.svg",
   },
   EURC: {
     symbol: "EURC",
@@ -104,6 +107,7 @@ export const TOKENS: Record<TokenSymbol, TokenConfig> = {
     decimals: 6,
     color: "#7C3AED",
     icon: "€",
+    iconSrc: "/tokens/eurc.svg",
   },
   cirBTC: {
     symbol: "cirBTC",
@@ -112,6 +116,7 @@ export const TOKENS: Record<TokenSymbol, TokenConfig> = {
     decimals: 8,
     color: "#FBBF24",
     icon: "₿",
+    iconSrc: "/tokens/cirbtc.svg",
   },
 };
 
@@ -133,7 +138,6 @@ export const CCTP_CHAINS = [
   { key: "arbitrum_sepolia", label: "Arbitrum Sepolia", domain: 3 },
   { key: "ethereum_sepolia", label: "Ethereum Sepolia", domain: 0 },
   { key: "avalanche_fuji", label: "Avalanche Fuji", domain: 1 },
-  { key: "solana_devnet", label: "Solana Devnet", domain: 5 },
 ] as const;
 
 /**

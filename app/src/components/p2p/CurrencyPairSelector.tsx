@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown } from "lucide-react";
 import clsx from "clsx";
 import { TOKENS, TokenSymbol, FIAT_CURRENCIES } from "@/lib/constants";
+import { TokenIcon } from "@/components/TokenIcon";
 import { useP2PStore } from "@/store/useP2PStore";
 
 function Dropdown<T extends string>({
@@ -76,12 +77,7 @@ export function CurrencyPairSelector() {
         onSelect={setSelectedToken}
         render={
           <span className="flex items-center gap-1.5 text-sm font-semibold">
-            <span
-              className="h-5 w-5 rounded-full flex items-center justify-center text-[10px] text-white"
-              style={{ backgroundColor: TOKENS[selectedToken].color }}
-            >
-              {TOKENS[selectedToken].icon}
-            </span>
+            <TokenIcon symbol={selectedToken} size={20} />
             {selectedToken}
           </span>
         }
@@ -90,12 +86,7 @@ export function CurrencyPairSelector() {
           label: s,
           render: (
             <span className="flex items-center gap-2">
-              <span
-                className="h-5 w-5 rounded-full flex items-center justify-center text-[10px] text-white"
-                style={{ backgroundColor: TOKENS[s].color }}
-              >
-                {TOKENS[s].icon}
-              </span>
+              <TokenIcon symbol={s} size={20} />
               {s}
             </span>
           ),

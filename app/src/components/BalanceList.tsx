@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { AlertTriangle } from "lucide-react";
 import { TOKENS, TokenSymbol } from "@/lib/constants";
 import { formatTokenAmount } from "@/lib/utils";
+import { TokenIcon } from "@/components/TokenIcon";
 import type { TokenReadStatus } from "@/hooks/useTokenBalances";
 
 export function BalanceList({
@@ -38,12 +39,7 @@ export function BalanceList({
             className="flex items-center justify-between px-5 py-4 transition-colors duration-150 hover:bg-white/40 dark:hover:bg-white/5 rounded-2xl"
           >
             <div className="flex items-center gap-3">
-              <div
-                className="h-10 w-10 rounded-full flex items-center justify-center font-semibold text-white"
-                style={{ backgroundColor: token.color }}
-              >
-                {token.icon}
-              </div>
+              <TokenIcon symbol={symbol} size={40} />
               <div>
                 <p className="font-medium">{token.symbol}</p>
                 <p className="text-xs text-ink-muted">{token.name}</p>

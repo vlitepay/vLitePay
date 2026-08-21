@@ -1,33 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
-import { consumeEvidenceNonce } from "@/lib/evidence-nonce";
-import { verifyWalletSignature } from "@/lib/verify-wallet-signature";
 import { uploadEvidence } from "@/lib/supabase-evidence-upload";
+import { isTradeParticipant } from "@/lib/verify-trade-participant";
 import { EVIDENCE_UPLOAD_LIMITS } from "@/lib/constants";
 
 /**
  * POST /api/evidence/upload
  * Body: multipart/form-data with fields:
  *   wallet: string
- *   message: string    // the exact string returned by GET /api/evidence/nonce
- *   signature: string
+ *   tradeId: string (numeric)
  *   file: File
  *
- * SECURITY ORDER — mirrors POST /api/profile, do not reorder or skip:
+ * Evidence upload is an OFF-CHAIN action — it only writes to Supabase
+ * Storage, no contract call happens here. Per product decision, off-chain
+ * actions should not prompt a wallet signature; only real on-chain writes
+ * (like the raiseDispute transaction this evidence gets attached to, via
+ * useEscrowActions in DisputeModal.tsx) should ask for a confirmation.
+ * This route used to require a full nonce -> sign -> verify flow (same
+ * shape as profile writes) — that's been replaced below with an on-chain
+ * PARTICIPANT CHECK instead, which is what actually matters here: not "is
+ * this genuinely wallet X" but "is wallet X allowed to attach evidence to
+ * this specific trade." Profile sync (app/api/profile/route.ts) keeps its
+ * signature requirement — that's a different, still-signed flow, not
+ * touched by this change.
+ *
+ * ORDER:
  *   1. Validate required fields (400 if missing) and the file itself
  *      (size/type against EVIDENCE_UPLOAD_LIMITS — a clearer 400 than
  *      letting Supabase Storage's own bucket-level limit reject it).
- *   2. consumeEvidenceNonce(wallet, message) — confirms `message` is the
- *      current, unexpired, single-use nonce for `wallet` and invalidates
- *      it immediately, before the signature is even looked at.
- *   3. verifyWalletSignature({ wallet, message, signature }) — confirms
- *      `signature` genuinely came from `wallet` (EIP-1271 aware, so this
- *      works for Circle's smart-contract wallets too).
- *   4. Only after both pass: uploadEvidence() — service-role write to the
- *      private `evidence` bucket, path scoped under the wallet address.
- *
- * NOT wired into any dispute/chat UI yet — this is foundation only, same
- * scope as POST /api/profile was before ActiveTradeBanner/TradeChat used
- * anything from it.
+ *   2. isTradeParticipant(tradeId, wallet) — confirms `wallet` is actually
+ *      the on-chain buyer or seller of `tradeId` (same helper and same
+ *      trade-off already accepted for chat — see
+ *      app/api/chat/messages/route.ts's comments for the full reasoning:
+ *      this is participant-gated, not signature-gated, which is
+ *      meaningfully better than no check at all while staying fast enough
+ *      not to need a wallet prompt for something as low-stakes as
+ *      attaching a screenshot).
+ *   3. Only after that passes: uploadEvidence() — service-role write to
+ *      the private `evidence` bucket, path scoped under wallet + tradeId.
  */
 export async function POST(req: NextRequest) {
   const formData = await req.formData().catch(() => null);
@@ -36,24 +45,26 @@ export async function POST(req: NextRequest) {
   }
 
   const wallet = formData.get("wallet");
-  const message = formData.get("message");
-  const signature = formData.get("signature");
+  const tradeIdRaw = formData.get("tradeId");
   const file = formData.get("file");
 
   // 1a. Required fields present and the right types.
   if (
     typeof wallet !== "string" ||
     !wallet ||
-    typeof message !== "string" ||
-    !message ||
-    typeof signature !== "string" ||
-    !signature ||
+    typeof tradeIdRaw !== "string" ||
+    !tradeIdRaw ||
     !(file instanceof File)
   ) {
     return NextResponse.json(
-      { error: "Missing required `wallet`, `message`, `signature`, or `file` field" },
+      { error: "Missing required `wallet`, `tradeId`, or `file` field" },
       { status: 400 }
     );
+  }
+
+  const tradeId = Number(tradeIdRaw);
+  if (!Number.isFinite(tradeId)) {
+    return NextResponse.json({ error: "`tradeId` must be a number" }, { status: 400 });
   }
 
   // 1b. File itself — size/type. Supabase's bucket-level limits (see the
@@ -72,26 +83,21 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 2. Nonce must be valid, unexpired, and not already consumed.
-  const nonceValid = consumeEvidenceNonce(wallet, message);
-  if (!nonceValid) {
+  // 2. The uploading wallet must actually be a participant in this trade —
+  // this is what stops a random wallet from attaching evidence to a trade
+  // it has nothing to do with.
+  const participant = await isTradeParticipant(tradeId, wallet);
+  if (!participant) {
     return NextResponse.json(
-      { error: "Invalid, expired, or already-used nonce. Request a new one from GET /api/evidence/nonce." },
-      { status: 401 }
+      { error: "Wallet is not a participant in this trade" },
+      { status: 403 }
     );
   }
 
-  // 3. Signature must genuinely be `wallet` signing exactly `message`.
-  const { valid, error: verifyError } = await verifyWalletSignature({ wallet, message, signature });
-  if (!valid) {
-    return NextResponse.json(
-      { error: "Signature verification failed", detail: verifyError },
-      { status: 401 }
-    );
-  }
-
-  // 4. Ownership verified — perform the upload.
-  const result = await uploadEvidence({ walletAddress: wallet, file });
+  // 3. Participation verified — perform the upload. No signature needed:
+  // this is an off-chain write, and participant-gating is the access
+  // control, not proof of wallet ownership.
+  const result = await uploadEvidence({ walletAddress: wallet, tradeId, file });
 
   if (!result) {
     return NextResponse.json(

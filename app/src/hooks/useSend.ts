@@ -22,6 +22,29 @@ function describeConfirmError(err: unknown, fallback: string): string {
  * atomic — a production build should wrap both legs in a single contract call
  * so they either both succeed or both revert.
  *
+ * IMPORTANT — why this is two wallet confirmations, and why that can't be
+ * safely collapsed to one without a contract change:
+ *   - Each `transfer()` below is a genuinely separate on-chain transaction.
+ *     Every wallet (Circle's PIN challenge, MetaMask, any WalletConnect
+ *     wallet) must prompt once per distinct transaction — that's a core
+ *     EIP-1193 security property, not something any connector can skip.
+ *     This is why the "double popup" happens identically for Circle wallets
+ *     and WalletConnect: it's this app-level two-call logic, not a
+ *     connector-specific bug.
+ *   - Batching both transfers via Arc's already-deployed Multicall3 (see
+ *     lib/constants.ts's arcTestnet.contracts.multicall3) does NOT work
+ *     here: when Multicall3 executes a sub-call, the ERC20 contract sees
+ *     `msg.sender` as Multicall3's own address, not the user's wallet — so
+ *     `transfer()` would try to move tokens out of Multicall3's balance
+ *     instead of the user's, and would simply revert.
+ *   - A true single-signature send requires either a purpose-built
+ *     "send + fee" contract (out of scope — this project's standing rule is
+ *     no smart contract changes) or `approve()` + `transferFrom()` through a
+ *     router (a *third* transaction, making this worse).
+ *   - `step` below doesn't reduce the confirmation count; it lets the UI
+ *     clearly label which of the two expected prompts is happening
+ *     ("1 of 2" / "2 of 2") instead of leaving the second one unexplained.
+ *
  * `confirming` flips true right after the wallet hands back a hash (the
  * Circle PIN popup / WalletConnect prompt has closed) and stays true until
  * waitForReceiptRobust actually confirms it on-chain — SendPanel uses this
@@ -33,11 +56,14 @@ export function useLocalSend() {
   const { treasury } = useTreasuryAddress();
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [step, setStep] = useState<"recipient" | "fee" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function send(tokenSymbol: TokenSymbol, recipient: `0x${string}`, netAmount: bigint, feeAmount: bigint) {
     setBusy(true);
     setError(null);
+    const hasFeeLeg = feeAmount > 0n && !!treasury;
+    setStep(hasFeeLeg ? "recipient" : null);
     try {
       const hash1 = await writeContractAsync({
         address: TOKENS[tokenSymbol].address,
@@ -47,14 +73,17 @@ export function useLocalSend() {
       });
       setConfirming(true);
       await waitForReceiptRobust(publicClient, hash1);
+      setConfirming(false);
 
-      if (feeAmount > 0n && treasury) {
+      if (hasFeeLeg) {
+        setStep("fee");
         const hash2 = await writeContractAsync({
           address: TOKENS[tokenSymbol].address,
           abi: erc20AllowanceAbi,
           functionName: "transfer",
           args: [treasury, feeAmount],
         });
+        setConfirming(true);
         await waitForReceiptRobust(publicClient, hash2);
       }
 
@@ -70,10 +99,11 @@ export function useLocalSend() {
     } finally {
       setBusy(false);
       setConfirming(false);
+      setStep(null);
     }
   }
 
-  return { send, busy, confirming, error };
+  return { send, busy, confirming, step, error };
 }
 
 // --- CCTP V2 fast-transfer gas limits ---
@@ -153,8 +183,7 @@ export function useCctpSend() {
       // --- Step 2: burn via depositForBurn (CCTP V2 fast-transfer signature) ---
       // mintRecipient must be the destination address left-padded to bytes32 —
       // CCTP's message format always uses a 32-byte recipient field regardless
-      // of the destination chain's native address width (e.g. Solana pubkeys
-      // are already 32 bytes; EVM addresses need this explicit left-pad).
+      // of the destination chain's native address width.
       const mintRecipient = pad(recipientAddress, { size: 32 });
       const maxFee = (amount * CCTP_MAX_FEE_BPS) / 10_000n;
       // bytes32(0) — allows any address to complete the mint on the destination domain

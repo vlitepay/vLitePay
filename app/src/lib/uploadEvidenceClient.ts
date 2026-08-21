@@ -1,18 +1,12 @@
-import { signMessage } from "wagmi/actions";
-import { wagmiConfig } from "@/lib/wagmi-config";
-
 /**
- * Client-side wrapper for the secure evidence upload flow: GET
- * /api/evidence/nonce -> wallet signs the returned message -> POST
- * /api/evidence/upload with { wallet, message, signature, file }.
+ * Client-side wrapper for evidence upload — a single POST, no wallet
+ * signature required. Evidence upload is an off-chain action (Supabase
+ * Storage write only, no contract call), so per product decision it
+ * doesn't prompt a signature; the server gates access with an on-chain
+ * participant check instead (see app/api/evidence/upload/route.ts).
  *
- * Mirrors useProfileStore.saveToSupabase's shape deliberately (same
- * result-object-not-throw pattern, same wagmi/actions signMessage usage —
- * works identically whether the connected wallet is injected/WalletConnect
- * or the Circle email connector) so callers handle both the same way.
- *
- * Never throws: a rejected signature, expired/invalid nonce, or network
- * failure all resolve to `{ ok: false, error }` rather than an exception.
+ * Never throws: a non-participant wallet, validation error, or network
+ * failure all resolve to `{ ok: false, error }`.
  */
 export type UploadEvidenceClientResult =
   | { ok: true; path: string; signedUrl: string }
@@ -20,31 +14,13 @@ export type UploadEvidenceClientResult =
 
 export async function uploadEvidenceClient(
   walletAddress: string,
+  tradeId: number,
   file: File
 ): Promise<UploadEvidenceClientResult> {
   try {
-    const key = walletAddress.toLowerCase();
-
-    // 1. Get a fresh, single-use nonce/message for this wallet.
-    const nonceRes = await fetch(`/api/evidence/nonce?wallet=${encodeURIComponent(key)}`);
-    if (!nonceRes.ok) {
-      return { ok: false, error: "Could not start a secure upload — please try again." };
-    }
-    const nonceJson = await nonceRes.json().catch(() => null);
-    const message = nonceJson?.message;
-    if (typeof message !== "string" || !message) {
-      return { ok: false, error: "Could not start a secure upload — please try again." };
-    }
-
-    // 2. Ask the connected wallet to sign that exact message.
-    const signature = await signMessage(wagmiConfig, { account: walletAddress as `0x${string}`, message });
-
-    // 3. Submit wallet + message + signature + the file. The route
-    // re-verifies everything server-side before uploading.
     const formData = new FormData();
-    formData.append("wallet", key);
-    formData.append("message", message);
-    formData.append("signature", signature);
+    formData.append("wallet", walletAddress.toLowerCase());
+    formData.append("tradeId", String(tradeId));
     formData.append("file", file);
 
     const uploadRes = await fetch("/api/evidence/upload", { method: "POST", body: formData });
@@ -64,8 +40,6 @@ export async function uploadEvidenceClient(
 
     return { ok: true, path: json.path, signedUrl: json.signedUrl };
   } catch (err) {
-    // Covers: signature rejected by the user, wallet/Circle prompt errored,
-    // or a network failure at any step.
     const message = err instanceof Error ? err.message : "Upload failed.";
     return { ok: false, error: message };
   }

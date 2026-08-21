@@ -9,20 +9,25 @@ import { STORAGE_BUCKETS } from "@/lib/constants";
  * storage SQL migration) and returns a short-lived signed URL, since a
  * private bucket has no public URL.
  *
- * Callers MUST have already verified wallet ownership (nonce + signature —
- * see lib/evidence-nonce.ts and lib/verify-wallet-signature.ts) before
- * calling this. This function itself does not check ownership; it trusts
- * `walletAddress` completely, same trust boundary as
+ * Callers MUST have already verified `walletAddress` is an on-chain
+ * participant of `tradeId` (see lib/verify-trade-participant.ts) before
+ * calling this. This function itself does not check participation; it
+ * trusts its inputs completely, same trust boundary as
  * lib/supabase-profile-write.ts's upsertProfile().
  *
- * Not wired into any dispute/chat UI yet — this is foundation only, called
- * so far only by app/api/evidence/upload/route.ts.
+ * No wallet signature is required for this upload (product decision:
+ * off-chain/non-chain actions shouldn't prompt a signature — see
+ * app/api/evidence/upload/route.ts's header comment for the full
+ * reasoning). The participant check is the actual access control here.
+ *
+ * Called by app/api/evidence/upload/route.ts.
  */
 
 const SIGNED_URL_EXPIRY_SECONDS = 60 * 60; // 1 hour — enough to view/attach right after upload
 
 export interface UploadEvidenceParams {
   walletAddress: string;
+  tradeId: number;
   file: File;
 }
 
@@ -40,21 +45,23 @@ function sanitizeFileName(name: string): string {
 }
 
 /**
- * Uploads `file` to `evidence/<wallet>/<uuid>-<filename>` and returns a
- * signed URL valid for SIGNED_URL_EXPIRY_SECONDS. Returns `null` on any
- * failure (Supabase unconfigured, upload error, signing error) — never
- * throws, so a route calling this doesn't need its own try/catch just for
- * this call.
+ * Uploads `file` to `evidence/<wallet>/<tradeId>/<uuid>-<filename>` (the
+ * tradeId segment makes evidence auditable/browsable per-trade) and
+ * returns a signed URL valid for SIGNED_URL_EXPIRY_SECONDS. Returns `null`
+ * on any failure (Supabase unconfigured, upload error, signing error) —
+ * never throws, so a route calling this doesn't need its own try/catch
+ * just for this call.
  */
 export async function uploadEvidence({
   walletAddress,
+  tradeId,
   file,
 }: UploadEvidenceParams): Promise<UploadEvidenceResult | null> {
   const admin = getSupabaseAdmin();
   if (!admin || !walletAddress || !file) return null;
 
   const key = walletAddress.toLowerCase();
-  const path = `${key}/${crypto.randomUUID()}-${sanitizeFileName(file.name)}`;
+  const path = `${key}/${tradeId}/${crypto.randomUUID()}-${sanitizeFileName(file.name)}`;
 
   const arrayBuffer = await file.arrayBuffer().catch(() => null);
   if (!arrayBuffer) return null;

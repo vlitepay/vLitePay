@@ -1,10 +1,13 @@
 "use client";
 
+import { useAccount } from "wagmi";
 import { formatUnits } from "viem";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { Offer } from "@/lib/types/p2p";
 import { TOKENS } from "@/lib/constants";
 import { formatTokenAmount } from "@/lib/utils";
+import { RecentSuggestions } from "@/components/shared/RecentSuggestions";
+import { useRecentHistoryStore } from "@/store/useRecentHistoryStore";
 
 export function AmountEntryPanel({
   offer,
@@ -28,6 +31,12 @@ export function AmountEntryPanel({
   /** Charged to the buyer (taker), deducted from what they receive. Defaults to 0%. */
   takerFeeBps: number;
 }) {
+  const { address } = useAccount();
+  const addRecentAmount = useRecentHistoryStore((s) => s.addRecent);
+  // Scoped per-token — a recent USDC amount isn't a useful suggestion when
+  // the offer being viewed is denominated in cirBTC.
+  const recentAmounts = useRecentHistoryStore((s) => s.getRecent(`p2p-amount-${offer.tokenSymbol}`, address));
+
   const token = TOKENS[offer.tokenSymbol];
   const min = Number(formatUnits(offer.minAmount, token.decimals));
   const max = Number(formatUnits(offer.maxAmount, token.decimals));
@@ -69,9 +78,13 @@ export function AmountEntryPanel({
           inputMode="decimal"
           value={amount}
           onChange={(e) => onAmountChange(e.target.value)}
+          onBlur={() => {
+            if (numericAmount > 0) addRecentAmount(`p2p-amount-${offer.tokenSymbol}`, address, amount);
+          }}
           placeholder="0.00"
           className="w-full stat-mono text-3xl font-bold bg-transparent outline-none border-b-2 border-white/20 dark:border-white/10 focus:border-vlite-cyan pb-2 transition-colors"
         />
+        <RecentSuggestions values={recentAmounts} onSelect={onAmountChange} />
         <p className="text-xs text-ink-muted mt-1.5 stat-mono">
           Limits: {formatTokenAmount(min, offer.tokenSymbol)}–{formatTokenAmount(max, offer.tokenSymbol)} {offer.tokenSymbol}
         </p>

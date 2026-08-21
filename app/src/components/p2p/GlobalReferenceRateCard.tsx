@@ -6,6 +6,7 @@ import { formatDistanceToNow } from "date-fns";
 import { Info, ChevronDown, Radio } from "lucide-react";
 import clsx from "clsx";
 import { TOKENS, TokenSymbol, REFERENCE_CURRENCIES, REFERENCE_CURRENCY_REGIONS, ReferenceCurrencyCode } from "@/lib/constants";
+import { TokenIcon } from "@/components/TokenIcon";
 import { useExchangeRates } from "@/hooks/useExchangeRates";
 import { useP2PStore } from "@/store/useP2PStore";
 
@@ -141,12 +142,7 @@ export function GlobalReferenceRateCard() {
           return (
             <div key={symbol} className="rounded-2xl bg-white/40 dark:bg-white/5 p-3.5">
               <div className="flex items-center gap-2 mb-1.5">
-                <span
-                  className="h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-semibold text-white shrink-0"
-                  style={{ backgroundColor: token.color }}
-                >
-                  {token.icon}
-                </span>
+                <TokenIcon symbol={symbol} size={24} />
                 <span className="text-xs text-ink-muted">1 {symbol} ≈</span>
               </div>
               <p className={clsx("stat-mono font-bold text-lg leading-tight", loading && "opacity-50")}>

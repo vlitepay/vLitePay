@@ -17,7 +17,6 @@ const CHAIN_BADGE: Record<string, { glyph: string; color: string }> = {
   arbitrum_sepolia: { glyph: "Ar", color: "#28A0F0" },
   ethereum_sepolia: { glyph: "Ξ", color: "#627EEA" },
   avalanche_fuji: { glyph: "▲", color: "#E84142" },
-  solana_devnet: { glyph: "◎", color: "#9945FF" },
 };
 
 function ChainBadge({ chainKey, size = 20 }: { chainKey: string; size?: number }) {

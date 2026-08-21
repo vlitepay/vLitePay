@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { parseUnits } from "viem";
+import { useAccount } from "wagmi";
 import { motion } from "framer-motion";
 import { Smartphone, CheckCircle2 } from "lucide-react";
 import clsx from "clsx";
@@ -16,17 +17,23 @@ import { ReloadlyOperator } from "@/lib/types/reloadly";
 import { AirtimeDataToggle } from "@/components/airtime/AirtimeDataToggle";
 import { OperatorSelector } from "@/components/airtime/OperatorSelector";
 import { PackageGrid } from "@/components/airtime/PackageGrid";
+import { TokenIcon } from "@/components/TokenIcon";
+import { RecentSuggestions } from "@/components/shared/RecentSuggestions";
+import { useRecentHistoryStore } from "@/store/useRecentHistoryStore";
 import { notify } from "@/lib/notify";
 import { useVLiteStore } from "@/store/useVLiteStore";
 
 const PAYABLE_TOKENS: TokenSymbol[] = ["USDC", "EURC"];
 
 export default function TopUpPage() {
+  const { address } = useAccount();
   const { balances } = useTokenBalances();
   const { rates } = useExchangeRates();
   const { feeBps } = useAirtimeFee();
   const { purchase, busy, error, step } = useAirtimePurchase();
   const markFirstActionComplete = useVLiteStore((s) => s.markFirstActionComplete);
+  const addRecentPhone = useRecentHistoryStore((s) => s.addRecent);
+  const recentPhones = useRecentHistoryStore((s) => s.getRecent("topup-phone", address));
 
   const [country, setCountry] = useState<string>(AIRTIME_COUNTRIES[0].code);
   const [mode, setMode] = useState<"airtime" | "data">("airtime");
@@ -89,6 +96,7 @@ export default function TopUpPage() {
     if (result) {
       setDone(result.hash);
       markFirstActionComplete();
+      addRecentPhone("topup-phone", address, phone);
       notify({
         category: "airtime",
         title: `${mode === "data" ? "Data" : "Airtime"} top-up submitted`,
@@ -163,6 +171,7 @@ export default function TopUpPage() {
             placeholder="+234 801 234 5678"
             className="w-full mt-1 stat-mono rounded-xl px-3 py-2.5 bg-white/50 dark:bg-white/5 border border-white/30 dark:border-white/10 text-sm outline-none focus:ring-2 focus:ring-vlite-cyan"
           />
+          <RecentSuggestions values={recentPhones} onSelect={setPhone} />
         </div>
 
         <div>
@@ -190,9 +199,7 @@ export default function TopUpPage() {
                   token === t ? "bg-vlite-gradient text-white shadow-glow" : "glass-panel-flush text-ink-muted"
                 )}
               >
-                <span className="h-4 w-4 rounded-full flex items-center justify-center text-[9px] text-white" style={{ backgroundColor: TOKENS[t].color }}>
-                  {TOKENS[t].icon}
-                </span>
+                <TokenIcon symbol={t} size={16} />
                 {t}
               </button>
             ))}

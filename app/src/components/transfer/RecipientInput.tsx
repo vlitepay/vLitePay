@@ -2,9 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { isAddress } from "viem";
+import { useAccount } from "wagmi";
 import { CheckCircle2, XCircle } from "lucide-react";
 import clsx from "clsx";
 import { useResolveUsername } from "@/hooks/useUsernameRegistry";
+import { RecentSuggestions } from "@/components/shared/RecentSuggestions";
+import { useRecentHistoryStore } from "@/store/useRecentHistoryStore";
 import { QrScannerModal } from "./QrScannerModal";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -19,6 +22,12 @@ export function RecipientInput({
   onResolvedAddress: (addr: `0x${string}` | null) => void;
 }) {
   const [mode, setMode] = useState<"username" | "address">("username");
+  const { address } = useAccount();
+  const addRecentRecipient = useRecentHistoryStore((s) => s.addRecent);
+  // Separate lists per mode — a saved address isn't a useful suggestion
+  // while typing a username, and vice versa.
+  const recentCategory = mode === "username" ? "send-recipient-username" : "send-recipient-address";
+  const recentRecipients = useRecentHistoryStore((s) => s.getRecent(recentCategory, address));
 
   const looksLikeUsername = mode === "username" && value.length >= 3 && !value.startsWith("0x");
   const { data: resolved } = useResolveUsername(looksLikeUsername ? value : "");
@@ -59,11 +68,18 @@ export function RecipientInput({
         <input
           value={value}
           onChange={(e) => onChange(mode === "username" ? e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") : e.target.value)}
+          onBlur={() => {
+            // Only record recipients that actually resolved — avoids
+            // polluting suggestions with typos or unresolved usernames.
+            if (resolvedAddress) addRecentRecipient(recentCategory, address, value);
+          }}
           placeholder={mode === "username" ? "username" : "0x…"}
           className="flex-1 stat-mono rounded-xl px-3 py-2.5 bg-white/50 dark:bg-white/5 border border-white/30 dark:border-white/10 text-sm outline-none focus:ring-2 focus:ring-vlite-cyan"
         />
         <QrScannerModal onScan={(v) => { setMode("address"); onChange(v); }} />
       </div>
+
+      {!value && <RecentSuggestions values={recentRecipients} onSelect={onChange} />}
 
       {value.length >= 3 && (
         <p className={clsx("text-xs mt-1.5 flex items-center gap-1", resolvedAddress ? "text-success" : "text-danger")}>
