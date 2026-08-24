@@ -17,6 +17,8 @@ import { useExchangeRates } from "@/hooks/useExchangeRates";
 import { useAllowance } from "@/hooks/useAllowance";
 import { useEscrowActions } from "@/hooks/useEscrowActions";
 import { useProtocolFee } from "@/hooks/useProtocolFee";
+import { useMerchantAvatars } from "@/hooks/useMerchantAvatars";
+import { useUsernameOf } from "@/hooks/useUsernameRegistry";
 import { useVLiteStore } from "@/store/useVLiteStore";
 import { notify } from "@/lib/notify";
 
@@ -48,6 +50,12 @@ export default function OfferDetailPage() {
   const { makerFeeBps, takerFeeBps } = useProtocolFee();
   const { allowance, refetch: refetchAllowance } = useAllowance(offer?.tokenSymbol ?? "USDC");
   const { approveToken, acceptOffer, busy, confirming, error } = useEscrowActions();
+  // Resolved from Supabase by merchant address — works for any viewer, not
+  // just the merchant viewing their own offer (see hooks/useMerchantAvatars.ts).
+  const merchantAvatars = useMerchantAvatars([offer?.merchant]);
+  // Same on-chain reverseResolve lookup OfferCard already uses — falls back
+  // to the truncated address below when the merchant has no username.
+  const { data: merchantUsername } = useUsernameOf(offer?.merchant);
   const setActiveTradeId = useVLiteStore((s) => s.setActiveTradeId);
 
   const [amount, setAmount] = useState("");
@@ -124,12 +132,20 @@ export default function OfferDetailPage() {
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-panel p-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-12 w-12 rounded-full bg-vlite-gradient flex items-center justify-center text-white font-semibold">
-              {offer.merchant.slice(2, 4).toUpperCase()}
+            <div className="h-12 w-12 rounded-full overflow-hidden shrink-0 bg-vlite-gradient flex items-center justify-center text-white font-semibold">
+              {merchantAvatars[offer.merchant.toLowerCase()] ? (
+                <img
+                  src={merchantAvatars[offer.merchant.toLowerCase()]}
+                  alt={offer.merchant}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                offer.merchant.slice(2, 4).toUpperCase()
+              )}
             </div>
             <div>
               <div className="flex items-center gap-1.5 font-medium">
-                {offer.merchant.slice(0, 6)}…{offer.merchant.slice(-4)}
+                {merchantUsername || `${offer.merchant.slice(0, 6)}…${offer.merchant.slice(-4)}`}
                 <ShieldCheck size={14} className="text-success" />
               </div>
               <p className="text-xs text-ink-muted">

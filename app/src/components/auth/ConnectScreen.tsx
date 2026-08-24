@@ -43,12 +43,29 @@ export function ConnectScreen() {
   /** Shared by both email and Google's success paths — connects the
    * session-based circle-email wagmi connector and flips the app's auth
    * state, identically regardless of which method produced the session. */
-  async function finishCircleLogin(walletAddress: `0x${string}`) {
+  async function finishCircleLogin(walletAddress: `0x${string}`, email?: string) {
     const circleWagmiConnector = connectors.find((c) => c.id === "circle-email");
     if (circleWagmiConnector) {
       await connectAsync({ connector: circleWagmiConnector });
     }
     setAuth("circle-email", walletAddress);
+
+    // Best-effort, fire-and-forget: persist the email Circle just gave us
+    // onto the profile (only if one isn't already stored — see
+    // lib/supabase-profile-email.ts). Never awaited by the caller and never
+    // surfaced as a login error — losing this write just means the profile
+    // stays without an email, exactly like before this feature existed.
+    // Absent entirely for Google logins where Google didn't return one,
+    // which is expected and handled gracefully (fetch simply isn't called).
+    if (email) {
+      fetch("/api/profile/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ wallet: walletAddress, email }),
+      }).catch(() => {
+        // Deliberately silent — see comment above.
+      });
+    }
   }
 
   // Catches a Google login completing after the full-page redirect back
@@ -64,7 +81,7 @@ export function ConnectScreen() {
       if (cancelled || !session) return;
       setCompletingGoogle(true);
       try {
-        await finishCircleLogin(session.walletAddress);
+        await finishCircleLogin(session.walletAddress, session.email);
       } catch (err: any) {
         if (!cancelled) setGoogleError(err?.message || "Something went wrong — please try again.");
       } finally {
@@ -83,7 +100,7 @@ export function ConnectScreen() {
     setEmailError(null);
     try {
       const session = await loginWithEmail(email);
-      await finishCircleLogin(session.walletAddress);
+      await finishCircleLogin(session.walletAddress, session.email);
     } catch (err: any) {
       setEmailError(
         err?.message === "Could not start Circle login session"

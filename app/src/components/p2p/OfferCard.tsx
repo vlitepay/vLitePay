@@ -8,13 +8,25 @@ import { Offer } from "@/lib/types/p2p";
 import { TOKENS } from "@/lib/constants";
 import { formatTokenAmount } from "@/lib/utils";
 import { useUsernameOf } from "@/hooks/useUsernameRegistry";
-import { useProfileStore } from "@/store/useProfileStore";
 
 function shortAddr(addr: string) {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
-export function OfferCard({ offer, index }: { offer: Offer; index: number }) {
+export function OfferCard({
+  offer,
+  index,
+  avatarUrl,
+}: {
+  offer: Offer;
+  index: number;
+  /** Resolved from Supabase by the parent (OfferList), batched across all
+   * visible offers — see hooks/useMerchantAvatars.ts. Deliberately NOT
+   * looked up here via the local profile store, which only ever has the
+   * current browser's own data and would show initials for every other
+   * viewer regardless of what the merchant actually uploaded. */
+  avatarUrl?: string | null;
+}) {
   const token = TOKENS[offer.tokenSymbol];
   const rate = Number(formatUnits(offer.rate, 18));
   const min = Number(formatUnits(offer.minAmount, token.decimals));
@@ -25,11 +37,6 @@ export function OfferCard({ offer, index }: { offer: Offer; index: number }) {
   // hasn't registered a username.
   const { data: merchantUsername } = useUsernameOf(offer.merchant);
   const displayName = merchantUsername || shortAddr(offer.merchant);
-
-  // Same avatar source Profile page and the header dropdown already use —
-  // falls back to the initials badge (unchanged from before) when the
-  // merchant has no profile image set.
-  const merchantAvatarUrl = useProfileStore((s) => s.getProfile(offer.merchant).avatarDataUrl);
 
   // Placeholder rating until Phase 4 wires up aggregated on-chain rating averages per merchant.
   const displayRating = 4.6 + ((Number(offer.id) * 7) % 4) / 10;
@@ -46,8 +53,8 @@ export function OfferCard({ offer, index }: { offer: Offer; index: number }) {
       >
         <div className="flex items-center gap-3">
           <div className="h-11 w-11 rounded-full overflow-hidden shrink-0 bg-vlite-gradient flex items-center justify-center text-white font-semibold">
-            {merchantAvatarUrl ? (
-              <img src={merchantAvatarUrl} alt={displayName} className="h-full w-full object-cover" />
+            {avatarUrl ? (
+              <img src={avatarUrl} alt={displayName} className="h-full w-full object-cover" />
             ) : (
               shortAddr(offer.merchant).slice(2, 4).toUpperCase()
             )}

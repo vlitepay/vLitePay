@@ -5,6 +5,7 @@ import { useAccount, useWriteContract, usePublicClient } from "wagmi";
 import { pad } from "viem";
 import { CONTRACTS, TOKENS, TokenSymbol } from "@/lib/constants";
 import { erc20AllowanceAbi } from "@/lib/abi/p2pEscrow";
+import { sendWithFeeAbi } from "@/lib/abi/sendWithFee";
 import { tokenMessengerAbi, CCTP_FINALITY_THRESHOLD } from "@/lib/abi/tokenMessenger";
 import { useTreasuryAddress } from "./useTreasuryAddress";
 import { waitForReceiptRobust, ReceiptRevertedError, ReceiptTimeoutError } from "@/lib/waitForReceipt";
@@ -16,34 +17,40 @@ function describeConfirmError(err: unknown, fallback: string): string {
 }
 
 /**
- * vLitePay doesn't yet have a dedicated on-chain "Transfer" contract, so the
- * configurable send fee is enforced here client-side as two sequential ERC20
- * transfers (net amount to the recipient, fee to the treasury). This is NOT
- * atomic — a production build should wrap both legs in a single contract call
- * so they either both succeed or both revert.
+ * Local (same-chain, Arc) send with an optional configurable fee.
  *
- * IMPORTANT — why this is two wallet confirmations, and why that can't be
- * safely collapsed to one without a contract change:
- *   - Each `transfer()` below is a genuinely separate on-chain transaction.
- *     Every wallet (Circle's PIN challenge, MetaMask, any WalletConnect
- *     wallet) must prompt once per distinct transaction — that's a core
- *     EIP-1193 security property, not something any connector can skip.
- *     This is why the "double popup" happens identically for Circle wallets
- *     and WalletConnect: it's this app-level two-call logic, not a
- *     connector-specific bug.
- *   - Batching both transfers via Arc's already-deployed Multicall3 (see
- *     lib/constants.ts's arcTestnet.contracts.multicall3) does NOT work
- *     here: when Multicall3 executes a sub-call, the ERC20 contract sees
- *     `msg.sender` as Multicall3's own address, not the user's wallet — so
- *     `transfer()` would try to move tokens out of Multicall3's balance
- *     instead of the user's, and would simply revert.
- *   - A true single-signature send requires either a purpose-built
- *     "send + fee" contract (out of scope — this project's standing rule is
- *     no smart contract changes) or `approve()` + `transferFrom()` through a
- *     router (a *third* transaction, making this worse).
- *   - `step` below doesn't reduce the confirmation count; it lets the UI
- *     clearly label which of the two expected prompts is happening
- *     ("1 of 2" / "2 of 2") instead of leaving the second one unexplained.
+ * As of the SendWithFee contract (contracts/src/SendWithFee.sol), a fee-on
+ * send is a SINGLE wallet confirmation once the SendWithFee contract has
+ * sufficient allowance: SendWithFee.sendWithFee() pulls both the recipient
+ * leg and the fee leg via transferFrom in one atomic transaction — either
+ * both succeed or the whole call reverts, unlike the old two-`transfer()`
+ * approach this replaces (which could partially succeed: recipient paid,
+ * fee never collected, or vice versa, if the second call failed).
+ *
+ * THREE PATHS, chosen automatically per send:
+ *   1. No fee applies (feeAmount === 0, or no treasury configured) — a
+ *      single plain ERC20 transfer(), exactly as before. No contract call,
+ *      no allowance/approve step, unaffected by any of this.
+ *   2. Fee applies AND CONTRACTS.sendWithFee is configured — the new atomic
+ *      path. If the contract's current allowance already covers
+ *      netAmount + feeAmount (e.g. a repeat sender within an
+ *      already-approved allowance), this is ONE confirmation total. If
+ *      allowance is insufficient, one approve() confirmation is needed
+ *      first (standard ERC20 reality — a contract can't pull tokens it
+ *      hasn't been approved for), then the atomic send — two
+ *      confirmations only on that first/insufficient-allowance send, one
+ *      confirmation on every subsequent send within that allowance.
+ *   3. Fee applies but CONTRACTS.sendWithFee is NOT configured (env var
+ *      unset, contract not deployed yet on this environment) — falls back
+ *      to the previous two-separate-transfers behavior. This is the
+ *      non-breaking safety net: an environment that hasn't deployed/wired
+ *      SendWithFee yet keeps working exactly as it did before this change,
+ *      just without the single-confirmation improvement.
+ *
+ * `step` describes whichever path is active, for SendPanel's UI messaging:
+ *   - path 2: "approve" (only if needed) then "send"
+ *   - path 3 (fallback): "recipient" then "fee" — same labels as before
+ *   - path 1: null throughout (only one thing ever happens)
  *
  * `confirming` flips true right after the wallet hands back a hash (the
  * Circle PIN popup / WalletConnect prompt has closed) and stays true until
@@ -51,22 +58,79 @@ function describeConfirmError(err: unknown, fallback: string): string {
  * to show a "Confirming on-chain…" state distinct from "waiting on wallet".
  */
 export function useLocalSend() {
+  const { address } = useAccount();
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient();
   const { treasury } = useTreasuryAddress();
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [step, setStep] = useState<"recipient" | "fee" | null>(null);
+  const [step, setStep] = useState<"recipient" | "fee" | "approve" | "send" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function send(tokenSymbol: TokenSymbol, recipient: `0x${string}`, netAmount: bigint, feeAmount: bigint) {
     setBusy(true);
     setError(null);
-    const hasFeeLeg = feeAmount > 0n && !!treasury;
-    setStep(hasFeeLeg ? "recipient" : null);
+
+    const hasFee = feeAmount > 0n && !!treasury;
+    const tokenAddress = TOKENS[tokenSymbol].address;
+
     try {
+      // --- Path 1: no fee — unchanged single transfer. ---
+      if (!hasFee) {
+        setStep(null);
+        const hash = await writeContractAsync({
+          address: tokenAddress,
+          abi: erc20AllowanceAbi,
+          functionName: "transfer",
+          args: [recipient, netAmount],
+        });
+        setConfirming(true);
+        await waitForReceiptRobust(publicClient, hash);
+        return hash;
+      }
+
+      // --- Path 2: fee applies, SendWithFee configured — atomic single tx. ---
+      if (CONTRACTS.sendWithFee) {
+        const total = netAmount + feeAmount;
+
+        const currentAllowance = (await publicClient.readContract({
+          address: tokenAddress,
+          abi: erc20AllowanceAbi,
+          functionName: "allowance",
+          args: [address as `0x${string}`, CONTRACTS.sendWithFee],
+        })) as bigint;
+
+        if (currentAllowance < total) {
+          setStep("approve");
+          const approveHash = await writeContractAsync({
+            address: tokenAddress,
+            abi: erc20AllowanceAbi,
+            functionName: "approve",
+            args: [CONTRACTS.sendWithFee, total],
+          });
+          setConfirming(true);
+          await waitForReceiptRobust(publicClient, approveHash);
+          setConfirming(false);
+        }
+
+        setStep("send");
+        const hash = await writeContractAsync({
+          address: CONTRACTS.sendWithFee,
+          abi: sendWithFeeAbi,
+          functionName: "sendWithFee",
+          args: [tokenAddress, recipient, netAmount, treasury as `0x${string}`, feeAmount],
+        });
+        setConfirming(true);
+        await waitForReceiptRobust(publicClient, hash);
+        return hash;
+      }
+
+      // --- Path 3: fee applies but SendWithFee isn't deployed/configured
+      // on this environment yet — old two-transaction fallback, unchanged
+      // from before this feature existed. ---
+      setStep("recipient");
       const hash1 = await writeContractAsync({
-        address: TOKENS[tokenSymbol].address,
+        address: tokenAddress,
         abi: erc20AllowanceAbi,
         functionName: "transfer",
         args: [recipient, netAmount],
@@ -75,17 +139,15 @@ export function useLocalSend() {
       await waitForReceiptRobust(publicClient, hash1);
       setConfirming(false);
 
-      if (hasFeeLeg) {
-        setStep("fee");
-        const hash2 = await writeContractAsync({
-          address: TOKENS[tokenSymbol].address,
-          abi: erc20AllowanceAbi,
-          functionName: "transfer",
-          args: [treasury, feeAmount],
-        });
-        setConfirming(true);
-        await waitForReceiptRobust(publicClient, hash2);
-      }
+      setStep("fee");
+      const hash2 = await writeContractAsync({
+        address: tokenAddress,
+        abi: erc20AllowanceAbi,
+        functionName: "transfer",
+        args: [treasury, feeAmount],
+      });
+      setConfirming(true);
+      await waitForReceiptRobust(publicClient, hash2);
 
       return hash1;
     } catch (err: any) {

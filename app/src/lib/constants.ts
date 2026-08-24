@@ -130,6 +130,18 @@ export const CONTRACTS = {
   p2pEscrow: (process.env.NEXT_PUBLIC_P2P_ESCROW_ADDRESS || "") as `0x${string}`,
   /** Circle CCTP TokenMessenger on Arc Testnet, used for outbound cross-chain sends. */
   tokenMessenger: (process.env.NEXT_PUBLIC_CCTP_TOKEN_MESSENGER_ADDRESS || ARC_CCTP_TOKEN_MESSENGER) as `0x${string}`,
+  /**
+   * SendWithFee helper (contracts/src/SendWithFee.sol) — collapses Send's
+   * fee-on flow into a single atomic transaction/confirmation. Empty by
+   * default/until deployed: hooks/useSend.ts's useLocalSend falls back to
+   * the previous two-separate-transfers behavior whenever this is unset,
+   * so leaving it blank is safe, not a broken state. Set
+   * NEXT_PUBLIC_SEND_WITH_FEE_ADDRESS after running
+   * `forge script script/DeploySendWithFee.s.sol:DeploySendWithFee
+   * --rpc-url arc_testnet --broadcast --verify -vvvv` to enable the
+   * single-confirmation path.
+   */
+  sendWithFee: (process.env.NEXT_PUBLIC_SEND_WITH_FEE_ADDRESS || "") as `0x${string}`,
 };
 
 export const CCTP_CHAINS = [

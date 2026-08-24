@@ -9,6 +9,11 @@ export interface CircleAuthSession {
   encryptionKey: string;
   walletAddress: `0x${string}`;
   walletId: string;
+  /** Known for email login (the address the user typed); present for Google
+   * login only if Google actually returned it (oAuthInfo.socialUserInfo.email
+   * — not guaranteed, e.g. if the OAuth scope didn't include email). Absent
+   * otherwise — always handle this as possibly undefined, never required. */
+  email?: string;
 }
 
 interface EmailLoginResult {
@@ -85,6 +90,7 @@ export async function loginWithEmail(email: string): Promise<CircleAuthSession> 
     encryptionKey: loginResult.encryptionKey,
     walletAddress: wallet.address,
     walletId: wallet.id,
+    email,
   };
 
   sdk.setAuthentication({ userToken: session.userToken, encryptionKey: session.encryptionKey });
@@ -209,9 +215,9 @@ export async function completePendingGoogleLogin(): Promise<CircleAuthSession | 
   // Google tab without completing sign-in and came back to this page
   // later through some other route), this resolves null rather than
   // leaving an unresolved promise hanging forever.
-  const loginResult = await new Promise<EmailLoginResult | null>((resolve) => {
+  const loginResult = await new Promise<(EmailLoginResult & { email?: string }) | null>((resolve) => {
     let settled = false;
-    const settle = (value: EmailLoginResult | null) => {
+    const settle = (value: (EmailLoginResult & { email?: string }) | null) => {
       if (settled) return;
       settled = true;
       resolve(value);
@@ -234,7 +240,12 @@ export async function completePendingGoogleLogin(): Promise<CircleAuthSession | 
           settle(null);
           return;
         }
-        settle({ userToken: result.userToken, encryptionKey: result.encryptionKey });
+        // oAuthInfo isn't on this file's narrowed local EmailLoginResult type
+        // (that type only models the fields shared with email login) — cast
+        // to read it, same "real field the installed types don't fully
+        // model" pattern already used a few lines up for loginConfigs.
+        const googleEmail = (result as any)?.oAuthInfo?.socialUserInfo?.email as string | undefined;
+        settle({ userToken: result.userToken, encryptionKey: result.encryptionKey, email: googleEmail });
       }
     );
   });
@@ -251,6 +262,7 @@ export async function completePendingGoogleLogin(): Promise<CircleAuthSession | 
     encryptionKey: loginResult.encryptionKey,
     walletAddress: wallet.address,
     walletId: wallet.id,
+    email: loginResult.email,
   };
 
   sdk.setAuthentication({ userToken: session.userToken, encryptionKey: session.encryptionKey });

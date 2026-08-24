@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { signMessage } from "@wagmi/core";
+import { signMessage } from "wagmi/actions";
 import { wagmiConfig } from "@/lib/wagmi-config";
 import type { ProfileRow } from "@/lib/types/database";
 
@@ -131,13 +131,12 @@ interface ProfileState {
    * saved locally. Pass a partial SaveableProfileFields to push only
    * specific fields instead.
    *
-   * Signing goes through @wagmi/core's `signMessage` action (not the
-   * `useSignMessage` hook, since this runs outside a component) — this
-   * dispatches through whichever connector is currently active in
-   * wagmiConfig, so it works identically whether the user connected via
-   * injected/WalletConnect or via the Circle email connector
-   * (lib/circleConnector.ts implements personal_sign the same as any other
-   * EIP-1193 provider).
+   * Signing goes through wagmi's `signMessage` action (not the `useSignMessage`
+   * hook, since this runs outside a component) — this dispatches through
+   * whichever connector is currently active in wagmiConfig, so it works
+   * identically whether the user connected via injected/WalletConnect or
+   * via the Circle email connector (lib/circleConnector.ts implements
+   * personal_sign the same as any other EIP-1193 provider).
    *
    * On success: local state is left untouched (local storage stays the
    * source of truth per this step's scope) — the caller can inspect
@@ -256,12 +255,33 @@ export const useProfileStore = create<ProfileState>()(
         // Local -> API field-name translation (avatarDataUrl -> avatar_url,
         // bankAccounts -> bank_details) happens here, once, rather than
         // asking every future caller to know the API's column names.
+        //
+        // isDefaultSync=true means "push everything I have locally" (the
+        // Sync profile button calls saveToSupabase(address) with no
+        // explicit fields) — in that case, an EMPTY local value must never
+        // be sent, since Supabase may already correctly hold a value this
+        // browser simply doesn't have cached (e.g. an avatar uploaded and
+        // synced from a different device/session). Sending it anyway would
+        // silently clobber already-working remote data with emptiness —
+        // this is exactly what caused merchant avatars to disappear for
+        // every viewer after an affected merchant re-synced from a session
+        // with no local avatar cached.
+        //
+        // A caller that passes `fields` explicitly is trusted to mean it —
+        // including an intentional `null`/empty value to actually clear a
+        // field — so that path is untouched.
+        const isDefaultSync = !fields;
         const payloadFields: Record<string, unknown> = {};
-        if ("avatarDataUrl" in source) payloadFields.avatar_url = source.avatarDataUrl;
-        if ("bio" in source) payloadFields.bio = source.bio;
-        if ("socials" in source) payloadFields.socials = source.socials;
-        if ("bankAccounts" in source) payloadFields.bank_details = source.bankAccounts;
-        if ("email" in source) payloadFields.email = source.email;
+        const include = (apiKey: string, value: unknown, isEmpty: boolean) => {
+          if (!isDefaultSync || !isEmpty) payloadFields[apiKey] = value;
+        };
+
+        if ("avatarDataUrl" in source) include("avatar_url", source.avatarDataUrl, !source.avatarDataUrl);
+        if ("bio" in source) include("bio", source.bio, !source.bio);
+        if ("socials" in source) include("socials", source.socials, Array.isArray(source.socials) && source.socials.length === 0);
+        if ("bankAccounts" in source)
+          include("bank_details", source.bankAccounts, Array.isArray(source.bankAccounts) && source.bankAccounts.length === 0);
+        if ("email" in source) include("email", source.email, !source.email);
 
         try {
           // 1. Get a fresh, single-use nonce/message for this wallet.

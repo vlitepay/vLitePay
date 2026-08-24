@@ -42,3 +42,42 @@ export async function getProfileByWallet(
 
   return data ?? null;
 }
+
+/**
+ * READ-ONLY, batched. Looks up avatar_url for many wallet addresses in a
+ * single query — used by P2P offer lists, where resolving each merchant's
+ * avatar individually (one request per card) would mean N round trips
+ * instead of one. Same anon client, same public-SELECT RLS policy, same
+ * safe-by-construction contract as getProfileByWallet above (never throws,
+ * returns an empty map on any failure so callers just fall back to
+ * initials for every address rather than erroring).
+ *
+ * Returns a map keyed by lowercased wallet address -> avatar_url (only
+ * present for wallets that actually have one set; addresses with no
+ * profile row, or a profile with no avatar, are simply absent from the
+ * returned map — callers should treat a missing key the same as `null`).
+ */
+export async function getAvatarsByWallets(
+  walletAddresses: string[]
+): Promise<Record<string, string>> {
+  const unique = Array.from(new Set(walletAddresses.filter(Boolean).map((a) => a.toLowerCase())));
+  if (!supabase || unique.length === 0) {
+    return {};
+  }
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("wallet_address, avatar_url")
+    .in("wallet_address", unique);
+
+  if (error) {
+    console.warn("[supabase-profile] getAvatarsByWallets failed:", error.message);
+    return {};
+  }
+
+  const result: Record<string, string> = {};
+  for (const row of data ?? []) {
+    if (row.avatar_url) result[row.wallet_address] = row.avatar_url;
+  }
+  return result;
+}

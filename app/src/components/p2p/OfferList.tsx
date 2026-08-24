@@ -6,6 +6,7 @@ import { Inbox } from "lucide-react";
 import { useP2PStore } from "@/store/useP2PStore";
 import { useOffers } from "@/hooks/useOffers";
 import { useResolveUsername } from "@/hooks/useUsernameRegistry";
+import { useMerchantAvatars } from "@/hooks/useMerchantAvatars";
 import { TOKENS } from "@/lib/constants";
 import { OfferCard } from "./OfferCard";
 import { SearchMerchantInput } from "./SearchMerchantInput";
@@ -58,6 +59,11 @@ export function OfferList() {
     });
   }, [offers, normalizedQuery, resolvedAddress, selectedToken]);
 
+  // One batched request resolves every visible merchant's avatar from
+  // Supabase — works for any viewer, not just each merchant viewing their
+  // own offers (see hooks/useMerchantAvatars.ts).
+  const avatars = useMerchantAvatars(filteredOffers.map((o) => o.merchant));
+
   if (isLoading) {
     return (
       <div className="space-y-3">
@@ -97,7 +103,7 @@ export function OfferList() {
       ) : (
         <div className="space-y-2.5">
           {filteredOffers.map((offer, i) => (
-            <OfferCard key={offer.id.toString()} offer={offer} index={i} />
+            <OfferCard key={offer.id.toString()} offer={offer} index={i} avatarUrl={avatars[offer.merchant.toLowerCase()]} />
           ))}
         </div>
       )}

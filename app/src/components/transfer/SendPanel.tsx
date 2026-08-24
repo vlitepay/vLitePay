@@ -180,16 +180,17 @@ export function SendPanel() {
 
       {!isCrossChain && localBusy && localStep && (
         <p className="text-xs text-ink-muted text-center -mt-1">
-          {localStep === "recipient"
-            ? "Step 1 of 2: sending to recipient — you'll confirm once more for the fee."
-            : "Step 2 of 2: sending the fee to complete this transfer."}
+          {localStep === "approve" && "Approve spending — you'll confirm once more to send."}
+          {localStep === "send" && "Sending — final confirmation."}
+          {localStep === "recipient" && "Step 1 of 2: sending to recipient — you'll confirm once more for the fee."}
+          {localStep === "fee" && "Step 2 of 2: sending the fee to complete this transfer."}
         </p>
       )}
 
       <button onClick={handleSend} disabled={!valid || busy} className="btn-vlite-primary w-full">
         {confirming
           ? localStep
-            ? `Confirming ${localStep === "recipient" ? "transfer" : "fee"} on-chain…`
+            ? `Confirming ${localStep === "recipient" ? "transfer" : localStep === "fee" ? "fee" : localStep} on-chain…`
             : "Confirming on-chain…"
           : busy
             ? isCrossChain
