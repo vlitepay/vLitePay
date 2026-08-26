@@ -147,7 +147,7 @@ export function ConnectScreen() {
               <VLiteWordmark size="text-3xl" />
             </h1>
             <p className="text-sm text-ink-muted mt-1.5 max-w-[240px] mx-auto">
-              Borderless P2P Finance — Built for Speed and Trust.
+              Move money without borders.
             </p>
           </div>
 
