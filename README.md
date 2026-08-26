@@ -120,7 +120,7 @@ Backend (backend/.env)
 the glowing "V" logo front and center) is the only thing rendered until a wallet connects or a
 Circle email session completes; only then does the header, nav, and the rest of the app mount.
 
-- **Wallet Support** — WalletConnect, injected wallets + Circle Programmable Wallets (email login)
+- **Wallet Support** — WalletConnect, injected wallets + Circle Programmable Wallets (email / google login)
 
 - **Home** — live on-chain USDC/EURC/cirBTC balances, 7d/30d portfolio chart (area + allocation
 pie), quick actions, live-trade social proof feed.
@@ -132,7 +132,7 @@ pie), quick actions, live-trade social proof feed.
 - **MyShop** — merchant application flow, offer posting, pause/resume, and per-offer performance
 stats (views/trades/volume).
 
-- **Top Up** — Airtime & data top-ups via Reloadly (Africa, Asia and beyond)
+- **Top Up** — Airtime & data top-ups via Reloadly.
 
 - **Username Registry** — On-chain username → wallet resolution
 
