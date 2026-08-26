@@ -71,8 +71,7 @@ forge script script/Deploy.s.sol:Deploy \
   --verify -vvvv
 ```
 This deploys `UsernameRegistry` and `P2PEscrow`, wires up supported tokens
-(USDC/EURC/cirBTC), seeds initial fiat pairs (NGN, PHP, EUR, USD, KES, GHS),
-and registers CCTP destination domains
+(USDC/EURC/cirBTC), seeds initial fiat pairs (NGN, PHP, EUR, GBP, USD, KES, GHS, BRL,VND, INR, MYR, IDR, ZAR), and registers CCTP destination domains
 
 
 ---
