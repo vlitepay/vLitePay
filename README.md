@@ -1,6 +1,6 @@
 # vLitePay
 
-**Borderless P2P Finance, Built for Speed and Trust**
+**Move money without borders.**
 
 Premium P2P stablecoin dApp.
 Send USDC/EURC/cirBTC, trade P2P for local fiat with merchants, top up airtime/data, and move USDC cross-chain via Circle CCTP.
@@ -71,8 +71,7 @@ forge script script/Deploy.s.sol:Deploy \
   --verify -vvvv
 ```
 This deploys `UsernameRegistry` and `P2PEscrow`, wires up supported tokens
-(USDC/EURC/cirBTC), seeds initial fiat pairs (NGN, PHP, EUR, USD, KES, GHS),
-and registers CCTP destination domains
+(USDC/EURC/cirBTC), seeds initial fiat pairs (NGN, PHP, EUR, GBP, USD, KES, GHS, BRL,VND, INR, MYR, IDR, ZAR), and registers CCTP destination domains
 
 
 ---
@@ -121,7 +120,7 @@ Backend (backend/.env)
 the glowing "V" logo front and center) is the only thing rendered until a wallet connects or a
 Circle email session completes; only then does the header, nav, and the rest of the app mount.
 
-- **Wallet Support** — WalletConnect, injected wallets + Circle Programmable Wallets (email login)
+- **Wallet Support** — WalletConnect, injected wallets + Circle Programmable Wallets (email / google login)
 
 - **Home** — live on-chain USDC/EURC/cirBTC balances, 7d/30d portfolio chart (area + allocation
 pie), quick actions, live-trade social proof feed.
@@ -133,7 +132,7 @@ pie), quick actions, live-trade social proof feed.
 - **MyShop** — merchant application flow, offer posting, pause/resume, and per-offer performance
 stats (views/trades/volume).
 
-- **Top Up** — Airtime & data top-ups via Reloadly (Africa, Asia and beyond)
+- **Top Up** — Airtime & data top-ups via Reloadly.
 
 - **Username Registry** — On-chain username → wallet resolution
 
@@ -151,11 +150,7 @@ trade history (replayed from `TradeLocked` logs), and a merchant application sho
 
 ## Known Limitations (Testnet)
 
-• Profile data (avatar, bio, bank details) is currently stored locally in the browser.
-
 • AI receipt analyzer for disputes is still simulated.
-
-• Payment proofs and trade chat messages are stored client-side for the MVP (will move to Supabase).
 
 • Some advanced merchant and referral features are not yet fully active.
 
