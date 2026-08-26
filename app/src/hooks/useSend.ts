@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useAccount, useWriteContract, usePublicClient } from "wagmi";
-import { pad } from "viem";
+import { pad, maxUint256 } from "viem";
 import { CONTRACTS, TOKENS, TokenSymbol } from "@/lib/constants";
 import { erc20AllowanceAbi } from "@/lib/abi/p2pEscrow";
 import { sendWithFeeAbi } from "@/lib/abi/sendWithFee";
@@ -37,9 +37,18 @@ function describeConfirmError(err: unknown, fallback: string): string {
  *      already-approved allowance), this is ONE confirmation total. If
  *      allowance is insufficient, one approve() confirmation is needed
  *      first (standard ERC20 reality — a contract can't pull tokens it
- *      hasn't been approved for), then the atomic send — two
- *      confirmations only on that first/insufficient-allowance send, one
- *      confirmation on every subsequent send within that allowance.
+ *      hasn't been approved for) — approving a large (maxUint256)
+ *      allowance rather than the exact amount needed for just this send,
+ *      so this approval step is a one-time cost rather than something
+ *      every single send re-triggers. (Earlier versions of this hook
+ *      approved exactly `netAmount + feeAmount` — but SendWithFee's two
+ *      transferFrom calls fully consume that exact allowance in the same
+ *      transaction, so it was back to 0 immediately after every send,
+ *      guaranteeing the next send would need to re-approve regardless of
+ *      amount. That was the actual bug, not the allowance comparison
+ *      itself.) After the first approval, every subsequent send of any
+ *      amount is a single sendWithFee confirmation, until the user (or a
+ *      future revoke flow) explicitly lowers the allowance.
  *   3. Fee applies but CONTRACTS.sendWithFee is NOT configured (env var
  *      unset, contract not deployed yet on this environment) — falls back
  *      to the previous two-separate-transfers behavior. This is the
@@ -101,12 +110,28 @@ export function useLocalSend() {
         })) as bigint;
 
         if (currentAllowance < total) {
+          // Approve a large allowance rather than the exact `total` needed
+          // for THIS send. This is the actual fix, not the comparison
+          // above (that was already correct): SendWithFee's two
+          // transferFrom calls together consume exactly what's approved,
+          // so approving only `total` meant allowance was back to 0
+          // immediately after every send — guaranteeing the very next send
+          // would fail this same check and re-trigger approval, regardless
+          // of the send amount. Approving maxUint256 once means every
+          // future send (of any amount) passes this check and goes
+          // straight to the single sendWithFee confirmation, until the
+          // user (or a future revoke flow) explicitly lowers it. Same
+          // "infinite approval" pattern used by most token-approval-based
+          // dApps — SendWithFee itself has no admin/owner and only ever
+          // pulls exactly the amounts passed into a given call, so this
+          // isn't granting it any capability beyond what one already
+          // trusts it with per-call.
           setStep("approve");
           const approveHash = await writeContractAsync({
             address: tokenAddress,
             abi: erc20AllowanceAbi,
             functionName: "approve",
-            args: [CONTRACTS.sendWithFee, total],
+            args: [CONTRACTS.sendWithFee, maxUint256],
           });
           setConfirming(true);
           await waitForReceiptRobust(publicClient, approveHash);
