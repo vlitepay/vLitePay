@@ -1,6 +1,6 @@
 # vLitePay
 
-**Borderless P2P Finance, Built for Speed and Trust**
+**Move money without borders.**
 
 Premium P2P stablecoin dApp.
 Send USDC/EURC/cirBTC, trade P2P for local fiat with merchants, top up airtime/data, and move USDC cross-chain via Circle CCTP.
