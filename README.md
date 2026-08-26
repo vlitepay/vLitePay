@@ -151,11 +151,7 @@ trade history (replayed from `TradeLocked` logs), and a merchant application sho
 
 ## Known Limitations (Testnet)
 
-• Profile data (avatar, bio, bank details) is currently stored locally in the browser.
-
 • AI receipt analyzer for disputes is still simulated.
-
-• Payment proofs and trade chat messages are stored client-side for the MVP (will move to Supabase).
 
 • Some advanced merchant and referral features are not yet fully active.
 
