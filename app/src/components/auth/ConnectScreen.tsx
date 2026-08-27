@@ -147,7 +147,7 @@ export function ConnectScreen() {
               <VLiteWordmark size="text-3xl" />
             </h1>
             <p className="text-sm text-ink-muted mt-1.5 max-w-[240px] mx-auto">
-              Move money without borders.
+              Buy & sell stablecoins for local cash.
             </p>
           </div>
 
