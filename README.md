@@ -2,7 +2,7 @@
 
 **Move money without borders.**
 
-Premium P2P stablecoin dApp.
+Borderless P2P stablecoin dApp.
 Send USDC/EURC/cirBTC, trade P2P for local fiat with merchants, top up airtime/data, and move USDC cross-chain via Circle CCTP.
 
 🔗 **Live Demo**: [https://vlitepay.com](https://vlitepay.com)
