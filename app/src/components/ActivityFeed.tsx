@@ -7,9 +7,9 @@ import { ShieldCheck, Star } from "lucide-react";
 // an indexer/subgraph is in place. Kept here so the Home screen has social
 // proof from day one; replace with live data in Phase 3.
 const RECENT_TRADES = [
-  { pair: "USDC → NGN", merchant: "chidi_fx", stars: 5, ago: "2m ago" },
-  { pair: "EURC → PHP", merchant: "manila_remit", stars: 4.9, ago: "6m ago" },
-  { pair: "cirBTC → NGN", merchant: "lagos_btc", stars: 5, ago: "11m ago" },
+  { pair: "USDC → NGN", merchant: "not_live", stars: 5, ago: "0m ago" },
+  { pair: "EURC → PHP", merchant: "not_live", stars: 4.9, ago: "0m ago" },
+  { pair: "cirBTC → NGN", merchant: "not_live", stars: 5, ago: "0m ago" },
 ];
 
 export function ActivityFeed() {
