@@ -19,6 +19,8 @@ export interface CircleAuthSession {
 interface EmailLoginResult {
   userToken: string;
   encryptionKey: string;
+  /** Required for session refresh (POST /api/circle/token/refresh) — see lib/circleTokenRefresh.ts. Circle's login callback returns this alongside userToken/encryptionKey for both email and Google logins. */
+  refreshToken: string;
 }
 
 /** Survives the full-page redirect to Google and back — see startGoogleLogin/completePendingGoogleLogin below. */
@@ -78,7 +80,11 @@ export async function loginWithEmail(email: string): Promise<CircleAuthSession> 
         reject(new Error((error as any)?.message || "Email verification failed"));
         return;
       }
-      resolve({ userToken: result.userToken, encryptionKey: result.encryptionKey });
+      if (!result.refreshToken) {
+        reject(new Error("Circle did not return a refresh token for this login — cannot keep the session alive."));
+        return;
+      }
+      resolve({ userToken: result.userToken, encryptionKey: result.encryptionKey, refreshToken: result.refreshToken });
     });
     sdk.verifyOtp();
   });
@@ -102,6 +108,9 @@ export async function loginWithEmail(email: string): Promise<CircleAuthSession> 
     walletId: session.walletId,
     userToken: session.userToken,
     encryptionKey: session.encryptionKey,
+    refreshToken: loginResult.refreshToken,
+    deviceId,
+    issuedAt: Date.now(),
   });
 
   return session;
@@ -236,7 +245,7 @@ export async function completePendingGoogleLogin(): Promise<CircleAuthSession | 
       },
       (error, result) => {
         clearTimeout(timeout);
-        if (error || !result) {
+        if (error || !result || !result.refreshToken) {
           settle(null);
           return;
         }
@@ -245,7 +254,7 @@ export async function completePendingGoogleLogin(): Promise<CircleAuthSession | 
         // to read it, same "real field the installed types don't fully
         // model" pattern already used a few lines up for loginConfigs.
         const googleEmail = (result as any)?.oAuthInfo?.socialUserInfo?.email as string | undefined;
-        settle({ userToken: result.userToken, encryptionKey: result.encryptionKey, email: googleEmail });
+        settle({ userToken: result.userToken, encryptionKey: result.encryptionKey, refreshToken: result.refreshToken, email: googleEmail });
       }
     );
   });
@@ -267,11 +276,16 @@ export async function completePendingGoogleLogin(): Promise<CircleAuthSession | 
 
   sdk.setAuthentication({ userToken: session.userToken, encryptionKey: session.encryptionKey });
 
+  const deviceId = await sdk.getDeviceId();
+
   setCircleSession({
     address: session.walletAddress,
     walletId: session.walletId,
     userToken: session.userToken,
     encryptionKey: session.encryptionKey,
+    refreshToken: loginResult.refreshToken,
+    deviceId,
+    issuedAt: Date.now(),
   });
 
   return session;

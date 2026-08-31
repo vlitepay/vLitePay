@@ -45,7 +45,7 @@ export function SendPanel() {
   const [done, setDone] = useState<string | null>(null);
 
   const { send, busy: localBusy, confirming: localConfirming, step: localStep, error: localError } = useLocalSend();
-  const { sendCrossChain, busy: cctpBusy, confirming: cctpConfirming, error: cctpError } = useCctpSend();
+  const { sendCrossChain, busy: cctpBusy, confirming: cctpConfirming, step: cctpStep, error: cctpError } = useCctpSend();
   const markFirstActionComplete = useVLiteStore((s) => s.markFirstActionComplete);
   const busy = localBusy || cctpBusy;
   const confirming = localConfirming || cctpConfirming;
@@ -71,7 +71,7 @@ export function SendPanel() {
     if (isCrossChain) {
       const chainConfig = CCTP_CHAINS.find((c) => c.key === chain);
       if (!chainConfig?.domain && chainConfig?.domain !== 0) return;
-      const hash = await sendCrossChain(netUnits, chainConfig.domain, resolvedAddress);
+      const hash = await sendCrossChain(netUnits, chainConfig.domain, resolvedAddress, feeUnits);
       if (hash) {
         setDone(hash);
         markFirstActionComplete();
@@ -187,11 +187,21 @@ export function SendPanel() {
         </p>
       )}
 
+      {isCrossChain && cctpBusy && cctpStep && (
+        <p className="text-xs text-ink-muted text-center -mt-1">
+          {cctpStep === "fee" && "Sending platform fee to treasury — you'll confirm again to bridge."}
+          {cctpStep === "approve" && "Approve spending — you'll confirm once more to bridge."}
+          {cctpStep === "burn" && "Bridging via CCTP — final confirmation."}
+        </p>
+      )}
+
       <button onClick={handleSend} disabled={!valid || busy} className="btn-vlite-primary w-full">
         {confirming
           ? localStep
             ? `Confirming ${localStep === "recipient" ? "transfer" : localStep === "fee" ? "fee" : localStep} on-chain…`
-            : "Confirming on-chain…"
+            : cctpStep
+              ? `Confirming ${cctpStep === "burn" ? "bridge" : cctpStep} on-chain…`
+              : "Confirming on-chain…"
           : busy
             ? isCrossChain
               ? "Bridging via CCTP…"

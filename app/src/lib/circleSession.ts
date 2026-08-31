@@ -18,17 +18,23 @@ import { getCircleSdk } from "./circleSdk";
  * wagmi's built-in reconnect flow logs the Circle wallet back in exactly
  * the same way it reconnects an injected/WalletConnect wallet.
  *
- * Known limitation: Circle's userToken has its own server-side expiry.
- * Restoring it here doesn't refresh an expired token — if it has expired,
- * the next signing attempt will fail and the user needs to log in again.
- * Token refresh isn't implemented (out of scope here, same as the rest of
- * the backend Circle wiring, which is still stubbed pending CIRCLE_API_KEY).
+ * Known limitation (now fixed — see lib/circleTokenRefresh.ts): Circle's
+ * userToken has its own server-side expiry. This module now also persists
+ * `refreshToken`/`deviceId`/`issuedAt` alongside the token pair so a stale
+ * session can be refreshed (POST /api/circle/token/refresh) instead of
+ * forcing a full re-login.
  */
 export interface CircleSession {
   address: `0x${string}`;
   walletId: string;
   userToken: string;
   encryptionKey: string;
+  /** Circle's refresh token — required to call /api/circle/token/refresh. */
+  refreshToken: string;
+  /** Same deviceId used at login (sdk.getDeviceId()) — Circle's refresh endpoint requires it too. */
+  deviceId: string;
+  /** Date.now() when this userToken/refreshToken pair was (re)issued — drives staleness checks in circleTokenRefresh.ts. */
+  issuedAt: number;
 }
 
 const STORAGE_KEY = "vlitepay-circle-session";
@@ -40,7 +46,10 @@ function isCircleSession(value: unknown): value is CircleSession {
     typeof (value as any).address === "string" &&
     typeof (value as any).walletId === "string" &&
     typeof (value as any).userToken === "string" &&
-    typeof (value as any).encryptionKey === "string"
+    typeof (value as any).encryptionKey === "string" &&
+    typeof (value as any).refreshToken === "string" &&
+    typeof (value as any).deviceId === "string" &&
+    typeof (value as any).issuedAt === "number"
   );
 }
 

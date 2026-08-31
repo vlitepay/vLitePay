@@ -2,6 +2,7 @@ import { createConnector } from "wagmi";
 import { arcTestnet } from "./constants";
 import { getCircleSdk } from "./circleSdk";
 import { getCircleSession, setCircleSession } from "./circleSession";
+import { refreshCircleSession, refreshCircleSessionIfStale } from "./circleTokenRefresh";
 
 const CHAIN_ID_HEX = `0x${arcTestnet.id.toString(16)}`;
 
@@ -149,30 +150,69 @@ export function circleConnector() {
  * CIRCLE_API_KEY — see app/api/circle/challenge/route.ts), then hands the
  * resulting challengeId to the Circle SDK, which opens its PIN/biometric
  * modal and reports back the executed result.
+ *
+ * Session freshness: refreshes the Circle session first if it looks stale
+ * (see lib/circleTokenRefresh.ts), then — if the challenge request still
+ * comes back with Circle's expired-token error (code 155104, "transaction
+ * challenges fail until logout/login") — force-refreshes once and retries
+ * the challenge exactly once more. If either refresh attempt fails, the
+ * session is cleared and a clear "sign in again" error is thrown rather
+ * than hanging or retrying indefinitely.
  */
 async function executeCircleChallenge(
   method: string,
   params: unknown[] | undefined,
-  session: { userToken: string; walletId: string }
+  initialSession: { userToken: string; walletId: string }
 ): Promise<string> {
-  const res = await fetch("/api/circle/challenge", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ method, params, userToken: session.userToken, walletId: session.walletId }),
-  }).catch((err) => {
-    throw toError(err, "Could not reach the server to start Circle signing");
-  });
+  await refreshCircleSessionIfStale();
 
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body?.error || "Could not create Circle signing challenge");
+  let session = getCircleSession() ?? initialSession;
+  if (!getCircleSession()) {
+    throw new Error("Your Circle session has expired — please sign in again.");
   }
 
-  const { challengeId } = await res.json();
-  if (!challengeId) {
-    throw new Error("Server did not return a Circle challengeId");
+  async function requestChallenge(): Promise<{ challengeId: string } | { expired: true }> {
+    const res = await fetch("/api/circle/challenge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ method, params, userToken: session.userToken, walletId: session.walletId }),
+    }).catch((err) => {
+      throw toError(err, "Could not reach the server to start Circle signing");
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      if (body?.code === 155104) {
+        return { expired: true };
+      }
+      throw new Error(body?.error || "Could not create Circle signing challenge");
+    }
+
+    const { challengeId } = await res.json();
+    if (!challengeId) {
+      throw new Error("Server did not return a Circle challengeId");
+    }
+    return { challengeId };
   }
 
+  let attempt = await requestChallenge();
+  if ("expired" in attempt) {
+    const refreshed = await refreshCircleSession();
+    const freshSession = getCircleSession();
+    if (!refreshed || !freshSession) {
+      throw new Error("Your Circle session has expired — please sign in again.");
+    }
+    session = freshSession;
+    attempt = await requestChallenge();
+    if ("expired" in attempt) {
+      // Refreshed but Circle still rejected the challenge as expired —
+      // don't loop forever; the user needs to sign in again.
+      setCircleSession(null);
+      throw new Error("Your Circle session has expired — please sign in again.");
+    }
+  }
+
+  const { challengeId } = attempt;
   const sdk = getCircleSdk();
   const submittedAt = Date.now();
 

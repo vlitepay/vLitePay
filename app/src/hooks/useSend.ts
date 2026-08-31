@@ -212,16 +212,54 @@ const DEPOSIT_FOR_BURN_GAS_LIMIT = 900_000n; // 800k+ as requested, rounded up f
 // for the live rate instead of trusting a hardcoded constant.
 const CCTP_MAX_FEE_BPS = 10n; // 0.10% conservative default
 
-/** Cross-chain USDC send via Circle CCTP V2 — burns on Arc, mints natively on the destination domain. */
+/**
+ * Cross-chain USDC send via Circle CCTP V2 — burns on Arc, mints natively
+ * on the destination domain.
+ *
+ * PLATFORM FEE: previously, SendPanel already computed feeUnits/netUnits
+ * for cross-chain sends (same admin-configured feeBps as local send — see
+ * SendPanel.tsx's useSendFee, reading P2PEscrow.sendFeeBps) and passed only
+ * the NET amount here to burn — but nothing ever collected the fee
+ * portion; it simply stayed in the sender's own wallet, uncollected. This
+ * hook now accepts an explicit `feeAmount` and, when > 0, sends it to the
+ * treasury via a single plain ERC20 transfer() BEFORE the existing
+ * approve/burn flow — CCTP's own burn/mint mechanics below are completely
+ * unchanged, still operating on exactly `amount` (the net amount SendPanel
+ * already computed).
+ *
+ * Why a plain transfer() rather than reusing SendWithFee.sol or wrapping
+ * depositForBurn in a new contract: depositForBurn burns from msg.sender's
+ * own balance via TokenMessenger's own internal pull — a wrapper contract
+ * would need to sit between the user and TokenMessenger for every burn,
+ * meaning any bug in that wrapper risks the CCTP burn/mint path itself
+ * (explicitly must-not-break). A plain transfer() is a well-understood,
+ * completely separate operation with no interaction with the burn at all —
+ * safer, even though it costs one more confirmation than an atomic
+ * combined call would.
+ *
+ * Zero-fee / fee-disabled: if feeAmount is 0 (or treasury isn't
+ * configured), the fee-transfer step is skipped entirely and behavior is
+ * byte-for-byte identical to before this change.
+ *
+ * `step` describes which part of the flow is active, for SendPanel's UI:
+ *   "fee" (only if feeAmount > 0) -> "approve" (only if needed) -> "burn"
+ */
 export function useCctpSend() {
   const { address } = useAccount();
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient();
+  const { treasury } = useTreasuryAddress();
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [step, setStep] = useState<"fee" | "approve" | "burn" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function sendCrossChain(amount: bigint, destinationDomain: number, recipientAddress: `0x${string}`) {
+  async function sendCrossChain(
+    amount: bigint,
+    destinationDomain: number,
+    recipientAddress: `0x${string}`,
+    feeAmount: bigint = 0n
+  ) {
     if (!CONTRACTS.tokenMessenger) {
       setError("CCTP TokenMessenger address isn't configured for this environment yet.");
       return null;
@@ -235,6 +273,22 @@ export function useCctpSend() {
     setError(null);
 
     try {
+      // --- Step 0: collect the platform fee on Arc first, if any. ---
+      // A plain transfer() from the user's own balance — no approve
+      // needed, and no interaction whatsoever with TokenMessenger/CCTP.
+      if (feeAmount > 0n && treasury) {
+        setStep("fee");
+        const feeHash = await writeContractAsync({
+          address: TOKENS.USDC.address,
+          abi: erc20AllowanceAbi,
+          functionName: "transfer",
+          args: [treasury, feeAmount],
+        });
+        setConfirming(true);
+        await waitForReceiptRobust(publicClient, feeHash);
+        setConfirming(false);
+      }
+
       // --- Step 1: check existing allowance, only approve if actually needed ---
       // Avoids a redundant approval tx (and its gas cost) on repeat sends once
       // the TokenMessenger already has sufficient allowance.
@@ -250,6 +304,7 @@ export function useCctpSend() {
       if (currentAllowance < amount) {
         console.log("[CCTP] insufficient allowance — sending approve() for", amount.toString(), "USDC (smallest units)");
 
+        setStep("approve");
         const approveHash = await writeContractAsync({
           address: TOKENS.USDC.address,
           abi: erc20AllowanceAbi,
@@ -288,6 +343,7 @@ export function useCctpSend() {
         minFinalityThreshold: CCTP_FINALITY_THRESHOLD.FAST,
       });
 
+      setStep("burn");
       const hash = await writeContractAsync({
         address: CONTRACTS.tokenMessenger,
         abi: tokenMessengerAbi,
@@ -309,8 +365,9 @@ export function useCctpSend() {
     } finally {
       setBusy(false);
       setConfirming(false);
+      setStep(null);
     }
   }
 
-  return { sendCrossChain, busy, confirming, error };
+  return { sendCrossChain, busy, confirming, step, error };
 }

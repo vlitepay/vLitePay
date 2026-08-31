@@ -5,6 +5,7 @@ import { WagmiProvider } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { wagmiConfig } from "@/lib/wagmi-config";
 import { useVLiteStore } from "@/store/useVLiteStore";
+import { CircleSessionGuard } from "@/components/auth/CircleSessionGuard";
 
 // NOTE: this file doesn't import any wallet connectors directly — it just
 // wraps the app in <WagmiProvider config={wagmiConfig} />, where `wagmiConfig`
@@ -36,7 +37,10 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <WagmiProvider config={wagmiConfig} reconnectOnMount>
       <QueryClientProvider client={queryClient}>
-        <ThemeSync>{children}</ThemeSync>
+        <ThemeSync>
+          <CircleSessionGuard />
+          {children}
+        </ThemeSync>
       </QueryClientProvider>
     </WagmiProvider>
   );

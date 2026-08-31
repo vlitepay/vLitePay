@@ -81,7 +81,7 @@ This deploys `UsernameRegistry` and `P2PEscrow`, wires up supported tokens
 cd app
 npm install
 cp .env.example .env.local   # fill in contract addresses, WalletConnect project id, Circle keys
-npm run dev
+ mo
 ```
 Open http://localhost:3000.
 
