@@ -9,11 +9,12 @@ import { sendWithFeeAbi } from "@/lib/abi/sendWithFee";
 import { tokenMessengerAbi, CCTP_FINALITY_THRESHOLD } from "@/lib/abi/tokenMessenger";
 import { useTreasuryAddress } from "./useTreasuryAddress";
 import { waitForReceiptRobust, ReceiptRevertedError, ReceiptTimeoutError } from "@/lib/waitForReceipt";
+import { describeCircleWriteError } from "@/lib/circleErrors";
 
 function describeConfirmError(err: unknown, fallback: string): string {
   if (err instanceof ReceiptRevertedError) return "Transaction reverted on-chain — no funds were moved.";
   if (err instanceof ReceiptTimeoutError) return err.message;
-  return (err as any)?.shortMessage || (err as any)?.message || fallback;
+  return describeCircleWriteError(err, fallback);
 }
 
 /**

@@ -6,6 +6,7 @@ import { decodeEventLog } from "viem";
 import { CONTRACTS, TOKENS, TokenSymbol } from "@/lib/constants";
 import { p2pEscrowAbi, erc20AllowanceAbi } from "@/lib/abi/p2pEscrow";
 import { waitForReceiptRobust, ReceiptRevertedError, ReceiptTimeoutError } from "@/lib/waitForReceipt";
+import { describeCircleWriteError } from "@/lib/circleErrors";
 
 /**
  * Centralizes every P2PEscrow write call the trading UI needs. Each action
@@ -36,7 +37,7 @@ export function useEscrowActions() {
       } else if (err instanceof ReceiptTimeoutError) {
         setError(err.message);
       } else {
-        setError(err?.shortMessage || err?.message || "Transaction failed");
+        setError(describeCircleWriteError(err, "Transaction failed"));
       }
       return null;
     } finally {

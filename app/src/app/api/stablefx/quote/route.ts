@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStableFxQuote, isHexString, isStableFxConfigured, StableFxNotConfiguredError } from "@/lib/stablefx";
+import { getStableFxQuote, isHexString, isStableFxConfigured, StableFxApiError, StableFxNotConfiguredError } from "@/lib/stablefx";
 import { SWAPPABLE_TOKENS, SwappableToken } from "@/lib/constants";
 
 /**
@@ -46,6 +46,12 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     if (err instanceof StableFxNotConfiguredError) {
       return NextResponse.json({ error: err.message }, { status: 501 });
+    }
+    if (err instanceof StableFxApiError) {
+      // Forward Circle's exact status + body rather than collapsing every
+      // failure into a generic 502 — lets the caller see Circle's real
+      // error code/message/errId directly.
+      return NextResponse.json(err.body, { status: err.status });
     }
     console.error("[stablefx/quote] failed:", err);
     return NextResponse.json(

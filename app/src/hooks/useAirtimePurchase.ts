@@ -6,6 +6,7 @@ import { erc20AllowanceAbi } from "@/lib/abi/p2pEscrow";
 import { TOKENS, TokenSymbol } from "@/lib/constants";
 import { useTreasuryAddress } from "./useTreasuryAddress";
 import { waitForReceiptRobust, ReceiptRevertedError, ReceiptTimeoutError } from "@/lib/waitForReceipt";
+import { describeCircleWriteError } from "@/lib/circleErrors";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
 
@@ -84,7 +85,7 @@ export function useAirtimePurchase() {
       } else if (err instanceof ReceiptTimeoutError) {
         setError(err.message);
       } else {
-        setError(err?.shortMessage || err?.message || "Top up purchase failed");
+        setError(describeCircleWriteError(err, "Top up purchase failed"));
       }
       return null;
     } finally {

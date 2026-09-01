@@ -3,6 +3,7 @@ import { arcTestnet } from "./constants";
 import { getCircleSdk } from "./circleSdk";
 import { getCircleSession, setCircleSession } from "./circleSession";
 import { refreshCircleSession, refreshCircleSessionIfStale } from "./circleTokenRefresh";
+import { CircleSessionExpiredError, looksLikeStaleCircleSessionError } from "./circleErrors";
 
 const CHAIN_ID_HEX = `0x${arcTestnet.id.toString(16)}`;
 
@@ -152,67 +153,69 @@ export function circleConnector() {
  * modal and reports back the executed result.
  *
  * Session freshness: refreshes the Circle session first if it looks stale
- * (see lib/circleTokenRefresh.ts), then — if the challenge request still
- * comes back with Circle's expired-token error (code 155104, "transaction
- * challenges fail until logout/login") — force-refreshes once and retries
- * the challenge exactly once more. If either refresh attempt fails, the
- * session is cleared and a clear "sign in again" error is thrown rather
- * than hanging or retrying indefinitely.
+ * (missing issuedAt/refreshToken counts as stale — see
+ * lib/circleTokenRefresh.ts). If EITHER the challenge-creation request or
+ * Circle's SDK execute() step then fails with something that looks like a
+ * stale/expired session (Circle's error 155104, "unauthorized", or the
+ * generic-looking RPC failure that a stale session sometimes shows up as —
+ * see lib/circleErrors.ts), this refreshes once more and retries the
+ * WHOLE flow (fresh challenge + fresh execute) exactly once. If that retry
+ * also fails for a session-related reason, or the refresh itself fails,
+ * this throws CircleSessionExpiredError rather than hanging, looping, or
+ * asking the user to log out first — Send/top-up/P2P's own catch blocks
+ * (via lib/circleErrors.ts's describeCircleWriteError) turn that into
+ * "Session expired. Sign in again." A genuine unrelated failure (the user
+ * cancelling the PIN prompt, a real contract revert, an actual network
+ * hiccup) is never retried and passes through as-is.
  */
 async function executeCircleChallenge(
   method: string,
   params: unknown[] | undefined,
-  initialSession: { userToken: string; walletId: string }
+  initialSession: { userToken: string; walletId: string },
+  hasRetried = false
 ): Promise<string> {
   await refreshCircleSessionIfStale();
 
-  let session = getCircleSession() ?? initialSession;
+  const session = getCircleSession() ?? initialSession;
   if (!getCircleSession()) {
-    throw new Error("Your Circle session has expired — please sign in again.");
+    throw new CircleSessionExpiredError();
   }
 
-  async function requestChallenge(): Promise<{ challengeId: string } | { expired: true }> {
-    const res = await fetch("/api/circle/challenge", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ method, params, userToken: session.userToken, walletId: session.walletId }),
-    }).catch((err) => {
-      throw toError(err, "Could not reach the server to start Circle signing");
-    });
-
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      if (body?.code === 155104) {
-        return { expired: true };
-      }
-      throw new Error(body?.error || "Could not create Circle signing challenge");
+  async function retryOnceOrGiveUp(cause: unknown): Promise<string> {
+    if (hasRetried) {
+      setCircleSession(null);
+      throw new CircleSessionExpiredError();
     }
-
-    const { challengeId } = await res.json();
-    if (!challengeId) {
-      throw new Error("Server did not return a Circle challengeId");
-    }
-    return { challengeId };
-  }
-
-  let attempt = await requestChallenge();
-  if ("expired" in attempt) {
     const refreshed = await refreshCircleSession();
     const freshSession = getCircleSession();
     if (!refreshed || !freshSession) {
-      throw new Error("Your Circle session has expired — please sign in again.");
+      throw new CircleSessionExpiredError();
     }
-    session = freshSession;
-    attempt = await requestChallenge();
-    if ("expired" in attempt) {
-      // Refreshed but Circle still rejected the challenge as expired —
-      // don't loop forever; the user needs to sign in again.
-      setCircleSession(null);
-      throw new Error("Your Circle session has expired — please sign in again.");
-    }
+    return executeCircleChallenge(method, params, freshSession, true);
   }
 
-  const { challengeId } = attempt;
+  const res = await fetch("/api/circle/challenge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ method, params, userToken: session.userToken, walletId: session.walletId }),
+  }).catch((err) => {
+    throw toError(err, "Could not reach the server to start Circle signing");
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const challengeError = new Error(body?.error || "Could not create Circle signing challenge");
+    if (body?.code === 155104 || looksLikeStaleCircleSessionError(challengeError)) {
+      return retryOnceOrGiveUp(challengeError);
+    }
+    throw challengeError;
+  }
+
+  const { challengeId } = await res.json();
+  if (!challengeId) {
+    throw new Error("Server did not return a Circle challengeId");
+  }
+
   const sdk = getCircleSdk();
   const submittedAt = Date.now();
 
@@ -221,21 +224,29 @@ async function executeCircleChallenge(
   // *anything* unexpected the callback hands us (a non-Error `error`, or a
   // callback invoked with neither an error nor a usable result) as a
   // failure rather than silently resolving with something we can't use.
-  const executeResult: any = await new Promise((resolve, reject) => {
-    try {
-      sdk.execute(challengeId, (error: unknown, result: unknown) => {
-        if (error) {
-          reject(toError(error, "Circle signing was cancelled or failed"));
-          return;
-        }
-        resolve(result);
-      });
-    } catch (err) {
-      // Guards against sdk.execute() throwing synchronously instead of
-      // going through the callback at all.
-      reject(toError(err, "Circle signing was cancelled or failed"));
+  let executeResult: any;
+  try {
+    executeResult = await new Promise((resolve, reject) => {
+      try {
+        sdk.execute(challengeId, (error: unknown, result: unknown) => {
+          if (error) {
+            reject(toError(error, "Circle signing was cancelled or failed"));
+            return;
+          }
+          resolve(result);
+        });
+      } catch (err) {
+        // Guards against sdk.execute() throwing synchronously instead of
+        // going through the callback at all.
+        reject(toError(err, "Circle signing was cancelled or failed"));
+      }
+    });
+  } catch (err) {
+    if (looksLikeStaleCircleSessionError(err)) {
+      return retryOnceOrGiveUp(err);
     }
-  });
+    throw err;
+  }
 
   // Signing challenges (personal_sign/eth_signTypedData_v4) return the
   // signature directly in the execute() callback. Circle's documented

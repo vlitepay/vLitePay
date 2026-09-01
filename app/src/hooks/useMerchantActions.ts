@@ -6,6 +6,7 @@ import { CONTRACTS } from "@/lib/constants";
 import { p2pEscrowAbi } from "@/lib/abi/p2pEscrow";
 import { OfferSide } from "@/lib/types/p2p";
 import { waitForReceiptRobust, ReceiptRevertedError, ReceiptTimeoutError } from "@/lib/waitForReceipt";
+import { describeCircleWriteError } from "@/lib/circleErrors";
 
 export function useMerchantActions() {
   const { writeContractAsync } = useWriteContract();
@@ -25,7 +26,7 @@ export function useMerchantActions() {
       } else if (err instanceof ReceiptTimeoutError) {
         setError(err.message);
       } else {
-        setError(err?.shortMessage || err?.message || "Transaction failed");
+        setError(describeCircleWriteError(err, "Transaction failed"));
       }
       return null;
     } finally {

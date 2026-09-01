@@ -20,6 +20,12 @@ const CIRCLE_TOKEN_STALE_MS = 15 * 60 * 1000;
 export function isCircleSessionStale(): boolean {
   const session = getCircleSession();
   if (!session) return false;
+  // A session missing either of these can't be refreshed at all (both are
+  // required by /api/circle/token/refresh) — treat it as stale immediately
+  // rather than only on the 15-minute clock, so refreshCircleSessionIfStale()
+  // forces a refresh (and, if that fails, a clean sign-out) right away
+  // instead of silently limping along until a write actually fails.
+  if (!session.issuedAt || !session.refreshToken) return true;
   return Date.now() - session.issuedAt > CIRCLE_TOKEN_STALE_MS;
 }
 
