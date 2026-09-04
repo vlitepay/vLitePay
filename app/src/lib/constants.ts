@@ -145,7 +145,7 @@ export const CONTRACTS = {
   /**
    * Circle StableFX's on-chain PvP settlement contract on Arc Testnet —
    * NOT a custom AMM/swap contract of ours, just where to point the
-   * Permit2 signature at (see hooks/useStableFx.ts). Empty by default:
+   * Permit2 signature at. Empty by default:
    * the Swap tab renders in a disabled state with clear copy whenever
    * this (or STABLEFX_API_KEY, checked server-side) isn't set. Fill in
    * once Circle's Arc Testnet FxEscrow address is confirmed.
@@ -155,9 +155,13 @@ export const CONTRACTS = {
   permit2: (process.env.NEXT_PUBLIC_PERMIT2_ADDRESS || "") as `0x${string}`,
 };
 
-/** v1 StableFX swap pairs — cirBTC intentionally excluded, not executable yet. */
+/** StableFX's own token restriction (USDC/EURC only) — used only by the still-present, unmounted /api/stablefx/* backend routes; no UI reads this anymore. */
 export const SWAPPABLE_TOKENS = ["USDC", "EURC"] as const;
 export type SwappableToken = (typeof SWAPPABLE_TOKENS)[number];
+
+/** Arc Testnet's official Swap-supported set for Circle App Kit — USDC, EURC, cirBTC only, no other tokens, no cross-chain this pass. */
+export const APPKIT_SWAP_TOKENS = ["USDC", "EURC", "cirBTC"] as const;
+export type AppKitSwapToken = (typeof APPKIT_SWAP_TOKENS)[number];
 
 export const CCTP_CHAINS = [
   { key: "arc", label: "Arc Testnet (local)", domain: null },
