@@ -37,8 +37,14 @@ export function ConnectScreen() {
 
   // The Circle connector is driven programmatically after a successful
   // email login (below) — it isn't a "pick your wallet" option, so it's
-  // excluded from the manual wallet list rendered further down.
-  const walletConnectors = connectors.filter((c) => c.id !== "circle-email");
+  // excluded from the manual wallet list rendered further down. The
+  // generic "injected" connector is hidden too — wagmi's multi-injected
+  // provider discovery (mipd) already surfaces each actually-installed
+  // wallet (MetaMask, Rabby, etc.) as its own separate connector entry, so
+  // this generic fallback button was redundant with those, not a distinct
+  // option. WalletConnect and every auto-detected wallet connector are
+  // untouched.
+  const walletConnectors = connectors.filter((c) => c.id !== "circle-email" && c.id !== "injected");
 
   /** Shared by both email and Google's success paths — connects the
    * session-based circle-email wagmi connector and flips the app's auth

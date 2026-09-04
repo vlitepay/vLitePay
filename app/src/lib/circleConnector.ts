@@ -146,6 +146,32 @@ export function circleConnector() {
 }
 
 /**
+ * Solves an already-created Circle challenge via the SDK's PIN/biometric
+ * modal — just the `sdk.execute()` half of executeCircleChallenge above,
+ * exposed standalone for callers (App Kit Swap's server-side adapter, see
+ * app/api/swap/execute/route.ts) that create their OWN Circle challenge
+ * server-side rather than going through /api/circle/challenge. Pure
+ * addition — executeCircleChallenge itself is untouched, so Send/P2P/etc.
+ * behavior is unaffected.
+ */
+export async function runCircleSdkChallenge(challengeId: string): Promise<unknown> {
+  const sdk = getCircleSdk();
+  return new Promise((resolve, reject) => {
+    try {
+      sdk.execute(challengeId, (error: unknown, result: unknown) => {
+        if (error) {
+          reject(toError(error, "Circle signing was cancelled or failed"));
+          return;
+        }
+        resolve(result);
+      });
+    } catch (err) {
+      reject(toError(err, "Circle signing was cancelled or failed"));
+    }
+  });
+}
+
+/**
  * Asks our backend to create the actual Circle transaction/signature
  * request (this is the server-side call into Circle's Wallets API using
  * CIRCLE_API_KEY — see app/api/circle/challenge/route.ts), then hands the

@@ -6,6 +6,7 @@ import { CONTRACTS, TOKENS } from "@/lib/constants";
 import { usernameRegistryAbi } from "@/lib/abi/usernameRegistry";
 import { erc20AllowanceAbi } from "@/lib/abi/p2pEscrow";
 import { waitForReceiptRobust, ReceiptRevertedError, ReceiptTimeoutError } from "@/lib/waitForReceipt";
+import { describeCircleWriteError } from "@/lib/circleErrors";
 
 /** Resolves a username to an address (returns zero address if unregistered). */
 export function useResolveUsername(username: string) {
@@ -61,7 +62,7 @@ export function useUsernameActions() {
       } else if (err instanceof ReceiptTimeoutError) {
         setError(err.message);
       } else {
-        setError(err?.shortMessage || err?.message || "Transaction failed");
+        setError(describeCircleWriteError(err, "Transaction failed"));
       }
       return null;
     } finally {
