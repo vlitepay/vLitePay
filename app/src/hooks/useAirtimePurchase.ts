@@ -19,6 +19,14 @@ export interface AirtimePurchaseInput {
   recipientCountryCode: string;
 }
 
+export interface AirtimePurchaseResult {
+  hash: `0x${string}`;
+  transactionId: string | null;
+  status: string | null;
+  operatorTransactionId: string | null;
+  operatorName: string | null;
+}
+
 /**
  * Dedicated top-up payment flow: ONE direct ERC20 `transfer` of the total
  * (top-up amount + fee) straight to the treasury address — no approve/
@@ -35,7 +43,7 @@ export function useAirtimePurchase() {
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<"idle" | "paying" | "confirming" | "done">("idle");
 
-  async function purchase(input: AirtimePurchaseInput) {
+  async function purchase(input: AirtimePurchaseInput): Promise<AirtimePurchaseResult | null> {
     if (!treasury) {
       setError("Treasury address not loaded yet — try again in a moment.");
       return null;
@@ -77,8 +85,19 @@ export function useAirtimePurchase() {
         );
       }
 
+      // Reloadly's own response — captured so the receipt card can show a
+      // real transactionId and poll for a real status update, rather than
+      // just knowing the on-chain payment succeeded.
+      const topup = await res.json().catch(() => ({}));
+
       setStep("done");
-      return { hash };
+      return {
+        hash,
+        transactionId: topup?.transactionId !== undefined ? String(topup.transactionId) : null,
+        status: topup?.status ?? null,
+        operatorTransactionId: topup?.operatorTransactionId ?? null,
+        operatorName: topup?.operatorName ?? null,
+      };
     } catch (err: any) {
       if (err instanceof ReceiptRevertedError) {
         setError("Transaction reverted on-chain — no funds were charged.");

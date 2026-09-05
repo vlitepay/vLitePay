@@ -3,21 +3,22 @@
 import { useEffect, useMemo, useState } from "react";
 import { parseUnits } from "viem";
 import { useAccount } from "wagmi";
-import { motion } from "framer-motion";
-import { Smartphone, CheckCircle2 } from "lucide-react";
+import { Smartphone } from "lucide-react";
 import clsx from "clsx";
 import { AIRTIME_COUNTRIES, TOKENS, TokenSymbol } from "@/lib/constants";
 import { formatTokenAmount } from "@/lib/utils";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
 import { useExchangeRates } from "@/hooks/useExchangeRates";
 import { useAirtimeFee } from "@/hooks/useAirtimeFee";
-import { useAirtimePurchase } from "@/hooks/useAirtimePurchase";
+import { useAirtimePurchase, AirtimePurchaseResult } from "@/hooks/useAirtimePurchase";
+import { useReloadlyStatusPoll } from "@/hooks/useReloadlyStatus";
 import { useReloadlyOperators } from "@/hooks/useReloadlyOperators";
 import { ReloadlyOperator } from "@/lib/types/reloadly";
 import { AirtimeDataToggle } from "@/components/airtime/AirtimeDataToggle";
 import { OperatorSelector } from "@/components/airtime/OperatorSelector";
 import { PackageGrid } from "@/components/airtime/PackageGrid";
 import { TokenIcon } from "@/components/TokenIcon";
+import { ReceiptCard, ReceiptStatus } from "@/components/ReceiptCard";
 import { RecentSuggestions } from "@/components/shared/RecentSuggestions";
 import { useRecentHistoryStore } from "@/store/useRecentHistoryStore";
 import { notify } from "@/lib/notify";
@@ -41,7 +42,8 @@ export default function TopUpPage() {
   const [selectedOperator, setSelectedOperator] = useState<ReloadlyOperator | null>(null);
   const [amount, setAmount] = useState<number | null>(null);
   const [token, setToken] = useState<TokenSymbol>("USDC");
-  const [done, setDone] = useState<string | null>(null);
+  const [purchaseResult, setPurchaseResult] = useState<AirtimePurchaseResult | null>(null);
+  const [purchasedLabel, setPurchasedLabel] = useState<{ phone: string; operator: string; mode: "airtime" | "data"; amount: number } | null>(null);
 
   const { operators, loading: operatorsLoading, error: operatorsError } = useReloadlyOperators(country);
 
@@ -94,7 +96,8 @@ export default function TopUpPage() {
       recipientCountryCode: country,
     });
     if (result) {
-      setDone(result.hash);
+      setPurchaseResult(result);
+      setPurchasedLabel({ phone, operator: selectedOperator.name, mode, amount: numericUsd });
       markFirstActionComplete();
       addRecentPhone("topup-phone", address, phone);
       notify({
@@ -106,25 +109,83 @@ export default function TopUpPage() {
     }
   }
 
-  if (done) {
+  const { status: reloadlyStatus } = useReloadlyStatusPoll(
+    purchaseResult?.transactionId ?? null,
+    purchaseResult?.status ?? null
+  );
+
+  const receiptStatus: ReceiptStatus =
+    reloadlyStatus === "SUCCESSFUL" ? "success" : reloadlyStatus === "FAILED" || reloadlyStatus === "REFUNDED" ? "failed" : "pending";
+
+  // Notify once the provider's real status lands — separate from the
+  // "submitted" notification fired at handleSubmit, which only confirms
+  // the on-chain payment went through, not that airtime/data was delivered.
+  useEffect(() => {
+    if (!purchaseResult) return;
+    if (receiptStatus === "success") {
+      notify({
+        category: "airtime",
+        title: `${purchasedLabel?.mode === "data" ? "Data" : "Airtime"} sent`,
+        message: `${purchasedLabel?.operator ?? "Your provider"} confirmed delivery to ${purchasedLabel?.phone ?? "the recipient"}.`,
+        href: "/topup",
+      });
+    } else if (receiptStatus === "failed") {
+      notify({
+        category: "airtime",
+        title: `${purchasedLabel?.mode === "data" ? "Data" : "Airtime"} top-up failed`,
+        message: "The provider couldn't complete this top-up after your payment was confirmed on-chain.",
+        href: "/topup",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receiptStatus]);
+
+  function resetTopup() {
+    setPurchaseResult(null);
+    setPurchasedLabel(null);
+    setAmount(null);
+  }
+
+  if (purchaseResult && purchasedLabel) {
+    const modeLabel = purchasedLabel.mode === "data" ? "Data" : "Airtime";
     return (
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-panel p-8 text-center space-y-3 mt-4">
-        <CheckCircle2 className="mx-auto text-success" size={32} />
-        <h1 className="font-display text-xl font-semibold">Top-up submitted!</h1>
-        <p className="text-sm text-ink-muted max-w-xs mx-auto">
-          Your payment is confirmed on-chain and the {mode} request has been sent to {selectedOperator?.name}.
-        </p>
-        <p className="text-xs stat-mono text-ink-muted break-all">{done}</p>
-        <button
-          onClick={() => {
-            setDone(null);
-            setAmount(null);
-          }}
-          className="btn-vlite-secondary mx-auto !py-2 text-sm"
-        >
-          Send another top-up
-        </button>
-      </motion.div>
+      <div className="mt-4">
+        <ReceiptCard
+          status={receiptStatus}
+          title={
+            receiptStatus === "pending"
+              ? "Top-up submitted"
+              : receiptStatus === "success"
+                ? `${modeLabel} sent`
+                : `${modeLabel} top-up failed`
+          }
+          subtitle={
+            receiptStatus === "pending"
+              ? `Waiting for ${purchasedLabel.operator} to credit the line.`
+              : receiptStatus === "success"
+                ? `${purchasedLabel.operator} confirmed delivery to ${purchasedLabel.phone}.`
+                : undefined
+          }
+          rows={[
+            { label: "Phone", value: purchasedLabel.phone, mono: true },
+            { label: "Operator", value: purchasedLabel.operator },
+            { label: purchasedLabel.mode === "data" ? "Package amount" : "Amount", value: `$${purchasedLabel.amount.toFixed(2)}` },
+            ...(purchaseResult.transactionId
+              ? [{ label: "Reloadly transaction", value: purchaseResult.transactionId, mono: true }]
+              : []),
+            { label: "Chain transaction", value: purchaseResult.hash, mono: true },
+          ]}
+          footerNote={
+            receiptStatus === "failed"
+              ? reloadlyStatus === "REFUNDED"
+                ? "The provider refunded this top-up on their side. Your on-chain crypto payment isn't automatically reversed — contact support with the transaction details above to arrange your refund."
+                : "Your on-chain crypto payment was already confirmed. Contact support with the transaction details above — a refund may be needed since the top-up didn't go through."
+              : undefined
+          }
+          onDone={resetTopup}
+          doneLabel="Send another top-up"
+        />
+      </div>
     );
   }
 

@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { useConnect } from "wagmi";
 import { motion, AnimatePresence } from "framer-motion";
 import { Wallet, Mail, ArrowRight, ArrowLeft } from "lucide-react";
-import { VLiteLogo } from "@/components/VLiteLogo";
-import { VLiteWordmark } from "@/components/VLiteWordmark";
+import { BrandMark } from "@/components/BrandMark";
+import { BrandWordmark } from "@/components/BrandWordmark";
 import { loginWithEmail, startGoogleLogin, completePendingGoogleLogin } from "@/lib/circle";
 import { useVLiteStore } from "@/store/useVLiteStore";
 
@@ -146,14 +146,14 @@ export function ConnectScreen() {
         <div className="vlite-halo -top-20 left-1/2 -translate-x-1/2 h-52 w-52 rounded-full" aria-hidden />
 
         <div className="relative flex flex-col items-center gap-4">
-          <VLiteLogo size={84} withHalo />
+          <BrandMark size={80} withHalo />
 
           <div>
             <h1 className="flex justify-center">
-              <VLiteWordmark size="text-3xl" />
+              <BrandWordmark size="text-3xl" />
             </h1>
             <p className="text-sm text-ink-muted mt-1.5 max-w-[240px] mx-auto">
-              Buy & sell stablecoins for local cash.
+              Borderless P2P Finance — Built for Speed and Trust.
             </p>
           </div>
 

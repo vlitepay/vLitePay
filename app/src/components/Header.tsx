@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { VLiteLogo } from "./VLiteLogo";
-import { VLiteWordmark } from "./VLiteWordmark";
+import { BrandMark } from "./BrandMark";
+import { BrandWordmark } from "./BrandWordmark";
 import { ThemeToggle } from "./ThemeToggle";
 import { WalletConnectButton } from "./WalletConnectButton";
 import { NotificationBell } from "./NotificationBell";
@@ -11,8 +11,8 @@ export function Header() {
     <header className="sticky top-0 z-40 backdrop-blur-lg bg-surface-light/70 dark:bg-surface-dark/70 border-b border-white/30 dark:border-white/5">
       <div className="mx-auto max-w-md md:max-w-4xl px-4 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2.5">
-          <VLiteLogo size={34} />
-          <VLiteWordmark size="text-lg" />
+          <BrandMark size={34} />
+          <BrandWordmark size="text-lg" />
         </Link>
 
         <nav className="hidden md:flex items-center gap-1">

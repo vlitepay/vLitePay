@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowDownUp, CheckCircle2, ExternalLink, Info, Loader2, Share2 } from "lucide-react";
+import { ArrowDownUp, Info, Loader2 } from "lucide-react";
 import { APPKIT_SWAP_TOKENS, AppKitSwapToken, TOKENS } from "@/lib/constants";
 import { TokenIcon } from "@/components/TokenIcon";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
@@ -10,6 +10,7 @@ import { useAppKitSwap, useAppKitSwapAvailability } from "@/hooks/useAppKitSwap"
 import { formatTokenAmount } from "@/lib/utils";
 import { notify } from "@/lib/notify";
 import { useVLiteStore } from "@/store/useVLiteStore";
+import { ReceiptCard } from "@/components/ReceiptCard";
 
 /**
  * Circle App Kit Swap (docs: https://docs.arc.network/app-kit/swap) — the
@@ -95,52 +96,25 @@ export function AppKitSwapPanel() {
     await executeSwap(fromToken, toToken, numericAmount.toFixed(decimals));
   }
 
-  async function handleShare() {
-    if (!result) return;
-    const text = `Swapped ${result.amountIn} ${result.tokenIn} → ${result.amountOut} ${result.tokenOut} on vLitePay`;
-    if (typeof navigator !== "undefined" && navigator.share) {
-      try {
-        await navigator.share({ title: "vLitePay swap", text, url: result.explorerUrl });
-        return;
-      } catch {
-        // User cancelled the native share sheet — fall through to copy.
-      }
-    }
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      await navigator.clipboard.writeText(result.explorerUrl);
-      notify({ category: "system", title: "Link copied", message: "Explorer link copied to clipboard." });
-    }
-  }
-
   // --- Success receipt: only ever reached with a real txHash ---
   if (result) {
     return (
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-panel p-8 text-center space-y-3">
-        <CheckCircle2 className="mx-auto text-success" size={32} />
-        <h2 className="font-display text-lg font-semibold">Swapped!</h2>
-        <p className="stat-mono text-lg">
-          {result.amountIn} {result.tokenIn}
-          {" → "}
-          {result.amountOut} {result.tokenOut}
-        </p>
-        <p className="text-xs stat-mono text-ink-muted break-all">{result.txHash}</p>
-        <div className="flex items-center justify-center gap-3">
-          <a
-            href={result.explorerUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-vlite-purple hover:underline"
-          >
-            View on Arc Explorer <ExternalLink size={14} />
-          </a>
-          <button onClick={handleShare} className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-vlite-purple">
-            Share <Share2 size={14} />
-          </button>
-        </div>
-        <button onClick={() => { reset(); setAmount(""); }} className="btn-vlite-secondary mx-auto !py-2 text-sm">
-          Swap again
-        </button>
-      </motion.div>
+      <ReceiptCard
+        status="success"
+        title="Swapped!"
+        rows={[
+          { label: "You paid", value: `${result.amountIn} ${result.tokenIn}` },
+          { label: "You received", value: `${result.amountOut} ${result.tokenOut}` },
+          { label: "Transaction", value: result.txHash, mono: true },
+        ]}
+        explorerUrl={result.explorerUrl}
+        explorerLabel="View on Arc Explorer"
+        shareTitle="vLitePay swap"
+        shareText={`Swapped ${result.amountIn} ${result.tokenIn} → ${result.amountOut} ${result.tokenOut} on vLitePay`}
+        shareUrl={result.explorerUrl}
+        onDone={() => { reset(); setAmount(""); }}
+        doneLabel="Swap again"
+      />
     );
   }
 

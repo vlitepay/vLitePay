@@ -2,8 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { parseUnits } from "viem";
-import { motion } from "framer-motion";
-import { CheckCircle2, ExternalLink } from "lucide-react";
 import clsx from "clsx";
 import { TOKENS, TokenSymbol, CCTP_CHAINS } from "@/lib/constants";
 import { TokenIcon } from "@/components/TokenIcon";
@@ -15,6 +13,7 @@ import { ChainSelector } from "./ChainSelector";
 import { formatTokenAmount } from "@/lib/utils";
 import { notify } from "@/lib/notify";
 import { useVLiteStore } from "@/store/useVLiteStore";
+import { ReceiptCard } from "@/components/ReceiptCard";
 
 // Reuses the P2P protocol fee reader's shape — sendFeeBps is a sibling config
 // value on the same contract, so we read it directly here for simplicity.
@@ -42,7 +41,14 @@ export function SendPanel() {
   const [token, setToken] = useState<TokenSymbol>("USDC");
   const [chain, setChain] = useState<string>("arc");
   const [amount, setAmount] = useState("");
-  const [done, setDone] = useState<string | null>(null);
+  const [receipt, setReceipt] = useState<{
+    kind: "local" | "cctp";
+    hash: `0x${string}`;
+    token: TokenSymbol;
+    netAmount: number;
+    recipientLabel: string;
+    chainLabel?: string;
+  } | null>(null);
 
   const { send, busy: localBusy, confirming: localConfirming, step: localStep, error: localError } = useLocalSend();
   const { sendCrossChain, busy: cctpBusy, confirming: cctpConfirming, step: cctpStep, error: cctpError } = useCctpSend();
@@ -67,13 +73,22 @@ export function SendPanel() {
     const feeUnits = parseUnits(fee.toFixed(decimals), decimals);
     const netUnits = amountUnits - feeUnits;
     const shortRecipient = `${resolvedAddress.slice(0, 6)}…${resolvedAddress.slice(-4)}`;
+    // Recipient was typed as a username unless it looks like a raw address.
+    const recipientLabel = recipientInput.trim().toLowerCase().startsWith("0x") ? shortRecipient : recipientInput.trim();
 
     if (isCrossChain) {
       const chainConfig = CCTP_CHAINS.find((c) => c.key === chain);
       if (!chainConfig?.domain && chainConfig?.domain !== 0) return;
       const hash = await sendCrossChain(netUnits, chainConfig.domain, resolvedAddress, feeUnits);
       if (hash) {
-        setDone(hash);
+        setReceipt({
+          kind: "cctp",
+          hash,
+          token,
+          netAmount,
+          recipientLabel,
+          chainLabel: chainConfig.label,
+        });
         markFirstActionComplete();
         notify({
           category: "send",
@@ -85,7 +100,7 @@ export function SendPanel() {
     } else {
       const hash = await send(token, resolvedAddress, netUnits, feeUnits);
       if (hash) {
-        setDone(hash);
+        setReceipt({ kind: "local", hash, token, netAmount, recipientLabel });
         markFirstActionComplete();
         notify({
           category: "send",
@@ -97,24 +112,33 @@ export function SendPanel() {
     }
   }
 
-  if (done) {
+  function resetSend() {
+    setReceipt(null);
+    setAmount("");
+    setRecipientInput("");
+  }
+
+  if (receipt) {
+    const isCctp = receipt.kind === "cctp";
     return (
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-panel p-8 text-center space-y-3">
-        <CheckCircle2 className="mx-auto text-success" size={32} />
-        <h2 className="font-display text-lg font-semibold">Sent!</h2>
-        <p className="text-xs stat-mono text-ink-muted break-all">{done}</p>
-        <a
-          href={`https://testnet.arcscan.app/tx/${done}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-vlite-purple hover:underline"
-        >
-          View on Arc Explorer <ExternalLink size={14} />
-        </a>
-        <button onClick={() => { setDone(null); setAmount(""); setRecipientInput(""); }} className="btn-vlite-secondary mx-auto !py-2 text-sm">
-          Send another
-        </button>
-      </motion.div>
+      <ReceiptCard
+        status={isCctp ? "pending" : "success"}
+        title={isCctp ? "Bridging via CCTP" : "Sent!"}
+        subtitle={isCctp ? `Burned on Arc — minting to ${receipt.recipientLabel} on ${receipt.chainLabel} can take a few minutes.` : undefined}
+        rows={[
+          { label: "To", value: receipt.recipientLabel },
+          { label: isCctp ? "Net sent" : "Amount", value: `${formatTokenAmount(receipt.netAmount, receipt.token)} ${receipt.token}` },
+          ...(isCctp && receipt.chainLabel ? [{ label: "Destination", value: receipt.chainLabel }] : []),
+          { label: "Status", value: isCctp ? "Submitted — bridging" : "Confirmed" },
+        ]}
+        explorerUrl={`https://testnet.arcscan.app/tx/${receipt.hash}`}
+        explorerLabel={isCctp ? "View burn transaction (Arc)" : "View on Arc Explorer"}
+        shareTitle="vLitePay transfer"
+        shareText={`Sent ${formatTokenAmount(receipt.netAmount, receipt.token)} ${receipt.token} to ${receipt.recipientLabel}${isCctp ? ` on ${receipt.chainLabel}` : ""} via vLitePay`}
+        shareUrl={`https://testnet.arcscan.app/tx/${receipt.hash}`}
+        onDone={resetSend}
+        doneLabel="Send another"
+      />
     );
   }
 

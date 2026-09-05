@@ -120,6 +120,24 @@ reloadlyRouter.post("/topup", async (req, res) => {
 });
 
 /**
+ * GET /airtime/topup/:transactionId/status — polls Reloadly's own "Get
+ * Topup Status" endpoint (https://topups.reloadly.com/topups/{id}/status)
+ * so the frontend can show a live pending -> SUCCESSFUL/FAILED/REFUNDED
+ * receipt instead of assuming the initial POST /topups response is final.
+ */
+reloadlyRouter.get("/topup/:transactionId/status", async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    if (!transactionId) return res.status(400).json({ error: "transactionId is required" });
+
+    const result = await reloadlyRequest("get", `/topups/${transactionId}/status`);
+    res.json(result);
+  } catch (err: any) {
+    res.status(502).json({ error: "Failed to fetch topup status", detail: err?.response?.data ?? err.message });
+  }
+});
+
+/**
  * Mounted separately at POST /webhooks/reloadly (see index.ts) — Reloadly
  * calls this when a topup's status changes (SUCCESSFUL / FAILED / REFUNDED).
  * Verifies the shared-secret signature header before trusting the payload.
