@@ -153,7 +153,7 @@ export function ConnectScreen() {
               <BrandWordmark size="text-3xl" />
             </h1>
             <p className="text-sm text-ink-muted mt-1.5 max-w-[240px] mx-auto">
-              Borderless P2P Finance — Built for Speed and Trust.
+              Buy & sell stablecoins for local cash.
             </p>
           </div>
 
