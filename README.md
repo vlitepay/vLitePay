@@ -1,4 +1,4 @@
-# vLitePay
+# vʟitePay
 
 **Move money without borders.**
 
