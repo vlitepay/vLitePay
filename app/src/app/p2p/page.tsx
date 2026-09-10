@@ -11,7 +11,7 @@ export default function P2PPage() {
   return (
     <div className="space-y-4 animate-slide-up">
       <div className="flex items-center justify-between">
-        <h1 className="font-display text-xl font-semibold">P2P Trading</h1>
+        <h1 className="font-display text-xl font-semibold">  </h1>
         <Link
           href="/p2p/myshop"
           className="glass-panel-flush rounded-full px-3 py-1.5 flex items-center gap-1.5 text-xs font-medium hover:bg-white/60 dark:hover:bg-white/10 transition"
