@@ -26,7 +26,7 @@ import { AuthSync } from "@/components/auth/AuthSync";
 export const metadata: Metadata = {
   title: "vLitePay — Borderless P2P Finance",
   description: "Send stablecoins, trade P2P for local fiat, and top up your phone — powered by USDC.",
-  icons: { icon: "/logo.png", apple: "/logo.png" },
+  icons: { icon: "/brand/vlitepay-mark.png", apple: "/brand/vlitepay-mark.png" },
 };
 
 export const viewport: Viewport = {
