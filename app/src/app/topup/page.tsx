@@ -192,7 +192,7 @@ export default function TopUpPage() {
   return (
     <div className="space-y-4 animate-slide-up">
       <h1 className="font-display text-xl font-semibold flex items-center gap-2">
-        <Smartphone size={20} className="text-vlite-gold" />  &amp;  
+        <Smartphone size={20} className="text-vlite-gold" />  amp;  
       </h1>
 
       <div className="glass-panel p-5 space-y-4">
