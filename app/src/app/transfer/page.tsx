@@ -17,7 +17,7 @@ function TransferTabs() {
 
   return (
     <div className="space-y-4 animate-slide-up pb-6">
-      <h1 className="font-display text-xl font-semibold">Transfer &amp; Deposit</h1>
+      <h1 className="font-display text-xl font-semibold">  amp;  </h1>
 
       <div className="glass-panel-flush rounded-2xl p-1 flex">
         {(["send", "swap", "deposit"] as const).map((t) => (
