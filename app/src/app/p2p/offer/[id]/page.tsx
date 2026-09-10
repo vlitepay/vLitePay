@@ -65,6 +65,7 @@ export default function OfferDetailPage() {
   // accepting this offer — i.e. the maker/seller side of the fee model, who pays the
   // maker fee on top of the trade amount. The buyer (taker) never pays anything extra.
   const isDepositor = offer?.side === OfferSide.MerchantBuys;
+  const isOwnOffer = !!offer && !!address && offer.merchant.toLowerCase() === address.toLowerCase();
   const decimals = offer ? TOKENS[offer.tokenSymbol].decimals : 6;
   const numericAmount = Number(amount) || 0;
   const amountUnits = offer && amount ? (() => {
@@ -96,7 +97,7 @@ export default function OfferDetailPage() {
     (!isDepositor || totalDebitIfDepositor <= (balances[offer.tokenSymbol] ?? 0));
 
   async function handleAccept() {
-    if (!offer || !valid) return;
+    if (!offer || !valid || isOwnOffer) return;
 
     if (needsApproval) {
       const approved = await approveToken(offer.tokenSymbol, depositTotalUnits);
@@ -199,8 +200,10 @@ export default function OfferDetailPage() {
 
       {error && <p className="text-sm text-danger text-center">{error}</p>}
 
-      <button onClick={handleAccept} disabled={!valid || busy || !address} className="btn-vlite-primary w-full">
-        {!address
+      <button onClick={handleAccept} disabled={isOwnOffer || !valid || busy || !address} className="btn-vlite-primary w-full">
+        {isOwnOffer
+          ? "This is your offer"
+          : !address
           ? "Connect wallet to trade"
           : confirming
           ? "Confirming on-chain…"

@@ -5,8 +5,23 @@ import { AnimatePresence, motion } from "framer-motion";
 import { AlertOctagon, Paperclip, X, FileCheck2, Loader2 } from "lucide-react";
 import { useAccount } from "wagmi";
 import { useEscrowActions } from "@/hooks/useEscrowActions";
+import { useTrade } from "@/hooks/useTrade";
+import { useMyUsername } from "@/hooks/useUsernameRegistry";
+import { REFERENCE_CURRENCY_REGIONS } from "@/lib/constants";
 import { uploadEvidenceClient } from "@/lib/uploadEvidenceClient";
 import { notify } from "@/lib/notify";
+
+function shortAddr(addr: string) {
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
+/** Reverse-lookup into REFERENCE_CURRENCY_REGIONS — falls back to the raw currency code if it isn't in that map. */
+function regionForCurrency(currency: string): string {
+  for (const [region, codes] of Object.entries(REFERENCE_CURRENCY_REGIONS)) {
+    if ((codes as readonly string[]).includes(currency)) return region;
+  }
+  return currency;
+}
 
 export function DisputeModal({ tradeId, onResolved }: { tradeId: bigint; onResolved?: () => void }) {
   const { address } = useAccount();
@@ -17,6 +32,15 @@ export function DisputeModal({ tradeId, onResolved }: { tradeId: bigint; onResol
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { raiseDispute, busy, error } = useEscrowActions();
+
+  // Pre-filled, read-only context for the dispute — the person filing
+  // never types their Ref/region/username, and the on-chain submission
+  // below still only ever uses the numeric tradeId, unaffected by any of
+  // this display-only data.
+  const { trade } = useTrade(Number(tradeId));
+  const { data: myUsername } = useMyUsername();
+  const region = trade ? regionForCurrency(trade.fiatCurrency) : "—";
+  const filedByLabel = myUsername ? `@${myUsername}` : address ? shortAddr(address) : "—";
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = e.target.files?.[0];
@@ -119,6 +143,21 @@ export function DisputeModal({ tradeId, onResolved }: { tradeId: bigint; onResol
                 An arbiter will review this trade's chat, payment proof, and your description below. Funds stay locked
                 in escrow until resolved.
               </p>
+
+              <div className="rounded-xl px-3 py-2.5 bg-white/40 dark:bg-white/5 border border-white/30 dark:border-white/10 text-xs space-y-1 mb-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-ink-muted">Ref</span>
+                  <span className="font-medium">Ref {tradeId.toString()}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-ink-muted">Region</span>
+                  <span className="font-medium">{region}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-ink-muted">Filed by</span>
+                  <span className="font-medium stat-mono">{filedByLabel}</span>
+                </div>
+              </div>
 
               <textarea
                 value={reason}

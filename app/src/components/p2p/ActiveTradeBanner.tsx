@@ -10,9 +10,14 @@ import { Lock, Send as SendIcon, X } from "lucide-react";
 import { useVLiteStore } from "@/store/useVLiteStore";
 import { useTrade } from "@/hooks/useTrade";
 import { useTradeHistory } from "@/hooks/useTradeHistory";
+import { useUsernameOf } from "@/hooks/useUsernameRegistry";
 import { TradeStatus } from "@/lib/types/p2p";
 import { TOKENS } from "@/lib/constants";
 import { formatTokenAmount } from "@/lib/utils";
+
+function shortAddr(addr: string) {
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
 
 const STATUS_LABEL: Record<TradeStatus, string> = {
   [TradeStatus.Locked]: "Awaiting fiat payment",
@@ -94,6 +99,14 @@ export function ActiveTradeBanner() {
   const onTradePage = pathname === `/p2p/trade/${activeTradeId}`;
   const visible = activeTradeId != null && trade && !onTradePage && !settled;
 
+  const counterparty = trade
+    ? trade.cryptoBuyer.toLowerCase() === address?.toLowerCase()
+      ? trade.cryptoSeller
+      : trade.cryptoBuyer
+    : undefined;
+  const { data: counterpartyUsername } = useUsernameOf(counterparty as `0x${string}` | undefined);
+  const counterpartyLabel = counterpartyUsername ? `@${counterpartyUsername}` : counterparty ? shortAddr(counterparty) : "";
+
   return (
     <AnimatePresence>
       {visible && trade && (
@@ -105,6 +118,7 @@ export function ActiveTradeBanner() {
         >
           <Link
             href={`/p2p/trade/${activeTradeId}`}
+            data-trade-id={activeTradeId}
             className="mx-auto max-w-md md:max-w-sm glass-panel flex items-center gap-3 px-4 py-3 shadow-glow block"
           >
             <div className="h-9 w-9 rounded-full bg-vlite-gradient flex items-center justify-center text-white shrink-0">
@@ -112,7 +126,7 @@ export function ActiveTradeBanner() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">
-                Trade #{activeTradeId} · {formatTokenAmount(Number(formatUnits(trade.amount, TOKENS[trade.tokenSymbol].decimals)), trade.tokenSymbol)} {trade.tokenSymbol}
+                {counterpartyLabel} · {formatTokenAmount(Number(formatUnits(trade.amount, TOKENS[trade.tokenSymbol].decimals)), trade.tokenSymbol)} {trade.tokenSymbol}
               </p>
               <p className="text-xs text-ink-muted">{STATUS_LABEL[trade.status]}</p>
             </div>

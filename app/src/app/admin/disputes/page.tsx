@@ -40,7 +40,7 @@ export default function AdminDisputesPage() {
             <div className="space-y-2">
               {resolvedTrades.map((t) => (
                 <div key={t.id.toString()} className="glass-panel flex items-center justify-between p-3.5 text-sm">
-                  <span>Trade #{t.id.toString()}</span>
+                  <span>Ref {t.id.toString()}</span>
                   <span className="stat-mono text-ink-muted">
                     {formatTokenAmount(Number(formatUnits(t.amount, TOKENS[t.tokenSymbol].decimals)), t.tokenSymbol)} {t.tokenSymbol}
                   </span>

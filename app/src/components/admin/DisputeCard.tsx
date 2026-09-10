@@ -55,7 +55,7 @@ export function DisputeCard({ trade, onResolved }: { trade: Trade; onResolved?: 
     <div className="glass-panel p-4 space-y-3">
       <div className="flex items-center justify-between">
         <p className="font-semibold text-sm flex items-center gap-1.5">
-          <Scale size={14} className="text-warning" /> Trade #{trade.id.toString()}
+          <Scale size={14} className="text-warning" /> Ref {trade.id.toString()}
         </p>
         <span className="stat-mono text-sm">
           {formatTokenAmount(totalAmount, trade.tokenSymbol)} {trade.tokenSymbol}

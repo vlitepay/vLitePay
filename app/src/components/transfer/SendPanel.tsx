@@ -17,7 +17,7 @@ import { ReceiptCard } from "@/components/ReceiptCard";
 
 // Reuses the P2P protocol fee reader's shape — sendFeeBps is a sibling config
 // value on the same contract, so we read it directly here for simplicity.
-import { useReadContract } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
 import { CONTRACTS } from "@/lib/constants";
 import { p2pEscrowAbi } from "@/lib/abi/p2pEscrow";
 
@@ -32,6 +32,7 @@ function useSendFee() {
 }
 
 export function SendPanel() {
+  const { address } = useAccount();
   const { balances } = useTokenBalances();
   const { rates } = useExchangeRates();
   const { feeBps } = useSendFee();
@@ -64,8 +65,12 @@ export function SendPanel() {
   const netAmount = numericAmount - fee;
   const balance = balances[token] ?? 0;
   const isCrossChain = chain !== "arc";
+  // Local Arc send only — CCTP's cross-chain destination address is on a
+  // different chain, so "sending to yourself" isn't the same on-chain
+  // concern there and is left untouched.
+  const isSelfSend = !isCrossChain && !!resolvedAddress && !!address && resolvedAddress.toLowerCase() === address.toLowerCase();
 
-  const valid = resolvedAddress && numericAmount > 0 && numericAmount <= balance && (!isCrossChain || token === "USDC");
+  const valid = resolvedAddress && numericAmount > 0 && numericAmount <= balance && (!isCrossChain || token === "USDC") && !isSelfSend;
 
   async function handleSend() {
     if (!valid || !resolvedAddress) return;
@@ -201,6 +206,7 @@ export function SendPanel() {
       </div>
 
       {error && <p className="text-sm text-danger">{error}</p>}
+      {isSelfSend && <p className="text-sm text-danger">You can't send to yourself.</p>}
 
       {!isCrossChain && localBusy && localStep && (
         <p className="text-xs text-ink-muted text-center -mt-1">
