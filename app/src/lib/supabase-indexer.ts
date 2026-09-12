@@ -5,7 +5,9 @@ import { getSupabaseAdmin } from "@/lib/supabase-admin";
 /**
  * SERVER-ONLY upsert helpers for the on-chain indexer foundation
  * (p2p_offers, p2p_trades, p2p_disputes, p2p_merchant_applications — see
- * the SQL migration). Called by app/api/admin/index-sync/route.ts today
+ * the SQL migration; plus wallet_deposits, added for incoming-transfer
+ * persistence — see supabase/wallet_deposits.sql). Called by
+ * app/api/admin/index-sync/route.ts today
  * (a manually-triggered stub); a real background worker would call these
  * exact same functions later without needing to change anything here.
  *
@@ -81,6 +83,17 @@ export interface MerchantApplicationRowInput {
   is_approved: boolean;
 }
 
+export interface DepositRowInput {
+  tx_hash: string;
+  log_index: number;
+  token_address: string;
+  token_symbol: string;
+  from_address: string;
+  to_address: string;
+  amount: string;
+  block_number: string;
+}
+
 /** Returns `true` on success, `false` on any failure — never throws, so a
  * sync loop can log-and-continue to the next row rather than aborting the
  * whole batch over one bad upsert. */
@@ -125,5 +138,26 @@ export function upsertMerchantApplication(app: MerchantApplicationRowInput): Pro
     "p2p_merchant_applications",
     { ...app, wallet_address: app.wallet_address.toLowerCase() },
     "wallet_address"
+  );
+}
+
+/**
+ * Deposits: confirmed incoming ERC-20 Transfer (USDC/EURC/cirBTC only) to
+ * a real user wallet — see readIncomingDepositsFromChain for what counts
+ * as "incoming" vs. an outbound Send/Swap/Top Up payment to one of our own
+ * contracts (excluded, not indexed here). Conflict key is a synthetic
+ * `tx_hash:log_index` id since a single transaction can (rarely) contain
+ * more than one Transfer log for the same token.
+ */
+export function upsertDeposit(deposit: DepositRowInput): Promise<boolean> {
+  return upsert(
+    "wallet_deposits",
+    {
+      id: `${deposit.tx_hash}:${deposit.log_index}`,
+      ...deposit,
+      from_address: deposit.from_address.toLowerCase(),
+      to_address: deposit.to_address.toLowerCase(),
+    },
+    "id"
   );
 }

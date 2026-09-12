@@ -462,6 +462,57 @@ export const p2pEscrowAbi = [
       { name: "amount", type: "uint256", indexed: false },
     ],
   },
+  // The six events below were added to this vendored ABI file to support
+  // lib/indexer-chain-reader.ts's event-driven P2P persistence sync — they
+  // were not previously read anywhere in the frontend. Signatures copied
+  // verbatim from contracts/src/P2PEscrow.sol (not redeployed/changed —
+  // this file is just an incomplete mirror being caught up to match the
+  // real, already-deployed contract).
+  {
+    type: "event",
+    name: "FiatMarkedSent",
+    inputs: [
+      { name: "tradeId", type: "uint256", indexed: true },
+      { name: "by", type: "address", indexed: true },
+    ],
+  },
+  {
+    type: "event",
+    name: "TradeReleasedCrossChain",
+    inputs: [
+      { name: "tradeId", type: "uint256", indexed: true },
+      { name: "to", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+      { name: "destinationChain", type: "string", indexed: false },
+      { name: "cctpNonce", type: "uint64", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "TradeCancelled",
+    inputs: [{ name: "tradeId", type: "uint256", indexed: true }],
+  },
+  {
+    type: "event",
+    name: "DisputeResolved",
+    inputs: [
+      { name: "tradeId", type: "uint256", indexed: true },
+      { name: "arbiter", type: "address", indexed: true },
+      { name: "recipient", type: "address", indexed: false },
+      { name: "amountToBuyer", type: "uint256", indexed: false },
+      { name: "amountToSeller", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "MerchantApproved",
+    inputs: [{ name: "merchant", type: "address", indexed: true }],
+  },
+  {
+    type: "event",
+    name: "MerchantRejected",
+    inputs: [{ name: "applicant", type: "address", indexed: true }],
+  },
 ] as const;
 
 /** Minimal ERC20 ABI needed for allowance, approve, and direct transfers (send/airtime flows). */

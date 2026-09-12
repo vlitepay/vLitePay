@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { parseUnits } from "viem";
 import clsx from "clsx";
 import { TOKENS, TokenSymbol, CCTP_CHAINS } from "@/lib/constants";
@@ -14,6 +14,7 @@ import { formatTokenAmount } from "@/lib/utils";
 import { notify } from "@/lib/notify";
 import { useVLiteStore } from "@/store/useVLiteStore";
 import { ReceiptCard } from "@/components/ReceiptCard";
+import { fetchCctpMessageStatus, destinationExplorerTxUrl, CCTP_DOMAIN } from "@/lib/cctp";
 
 // Reuses the P2P protocol fee reader's shape — sendFeeBps is a sibling config
 // value on the same contract, so we read it directly here for simplicity.
@@ -49,7 +50,11 @@ export function SendPanel() {
     netAmount: number;
     recipientLabel: string;
     chainLabel?: string;
+    destinationDomain?: number;
+    usedForwarding?: boolean;
+    irisEmpty?: boolean;
   } | null>(null);
+  const [mintInfo, setMintInfo] = useState<{ status: "minting" | "minted" | "iris_empty"; destTxHash?: string } | null>(null);
 
   const { send, busy: localBusy, confirming: localConfirming, step: localStep, error: localError } = useLocalSend();
   const { sendCrossChain, busy: cctpBusy, confirming: cctpConfirming, step: cctpStep, error: cctpError } = useCctpSend();
@@ -84,15 +89,18 @@ export function SendPanel() {
     if (isCrossChain) {
       const chainConfig = CCTP_CHAINS.find((c) => c.key === chain);
       if (!chainConfig?.domain && chainConfig?.domain !== 0) return;
-      const hash = await sendCrossChain(netUnits, chainConfig.domain, resolvedAddress, feeUnits);
-      if (hash) {
+      const result = await sendCrossChain(netUnits, chainConfig.domain, resolvedAddress, feeUnits);
+      if (result) {
         setReceipt({
           kind: "cctp",
-          hash,
+          hash: result.hash,
           token,
           netAmount,
           recipientLabel,
           chainLabel: chainConfig.label,
+          destinationDomain: result.destinationDomain,
+          usedForwarding: result.usedForwarding,
+          irisEmpty: result.irisEmpty,
         });
         markFirstActionComplete();
         notify({
@@ -119,25 +127,100 @@ export function SendPanel() {
 
   function resetSend() {
     setReceipt(null);
+    setMintInfo(null);
     setAmount("");
     setRecipientInput("");
   }
 
+  // Background mint-completion poll for CCTP receipts — never blocks the
+  // receipt from showing green immediately after the burn confirms.
+  // "Forwarding" burns just need a status check (Circle mints
+  // automatically); the fallback (non-forwarding) path actively relays via
+  // /api/cctp/relay, which also returns a real destination tx hash once it
+  // succeeds. If Iris had nothing for this burn tx at all, we say so
+  // honestly instead of implying a normal pending mint.
+  useEffect(() => {
+    if (!receipt || receipt.kind !== "cctp" || receipt.destinationDomain === undefined) return;
+
+    let cancelled = false;
+    setMintInfo(receipt.irisEmpty ? { status: "iris_empty" } : { status: "minting" });
+
+    async function poll() {
+      for (let attempt = 0; attempt < 20 && !cancelled; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 6000));
+        if (cancelled) return;
+
+        if (receipt!.usedForwarding) {
+          const result = await fetchCctpMessageStatus(CCTP_DOMAIN.arc, receipt!.hash);
+          if (cancelled) return;
+          if (result.status === "complete") {
+            // Circle's Forwarding Service mints automatically — Iris's
+            // message-status endpoint doesn't hand back a destination tx
+            // hash, so we can confirm minting happened without a specific
+            // dest link to show (ReceiptCard falls back to the Arc burn
+            // link only, per "Else stay green + Arc burn explorer").
+            setMintInfo({ status: "minted" });
+            return;
+          }
+          if (result.status === "iris_empty") setMintInfo({ status: "iris_empty" });
+        } else {
+          try {
+            const res = await fetch("/api/cctp/relay", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ burnTxHash: receipt!.hash, destinationDomain: receipt!.destinationDomain }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (cancelled) return;
+            if (data.status === "minted" || data.status === "already_minted") {
+              setMintInfo({ status: "minted", destTxHash: data.destTxHash });
+              return;
+            }
+            if (data.status === "iris_empty") setMintInfo({ status: "iris_empty" });
+            if (data.status === "not_configured") return; // nothing will change until env is set — stop polling
+          } catch {
+            // transient network error — keep polling, same as any other missed attempt
+          }
+        }
+      }
+    }
+
+    poll();
+    return () => {
+      cancelled = true;
+    };
+  }, [receipt]);
+
   if (receipt) {
     const isCctp = receipt.kind === "cctp";
+    const destTxUrl =
+      isCctp && mintInfo?.destTxHash && receipt.destinationDomain !== undefined
+        ? destinationExplorerTxUrl(receipt.destinationDomain, mintInfo.destTxHash)
+        : null;
+    const cctpStatusLabel =
+      mintInfo?.status === "minted" ? "Minted" : mintInfo?.status === "iris_empty" ? "Minting… (Iris empty)" : "Minting…";
+    const cctpSubtitle =
+      mintInfo?.status === "minted"
+        ? `Minted on ${receipt.chainLabel}.`
+        : mintInfo?.status === "iris_empty"
+          ? `Minting on ${receipt.chainLabel} — Circle hasn't reported this burn's status yet.`
+          : `Minting on ${receipt.chainLabel}.`;
+
     return (
       <ReceiptCard
-        status={isCctp ? "pending" : "success"}
-        title={isCctp ? "Bridging via CCTP" : "Sent!"}
-        subtitle={isCctp ? `Burned on Arc — minting to ${receipt.recipientLabel} on ${receipt.chainLabel} can take a few minutes.` : undefined}
+        status="success"
+        title="Sent!"
+        subtitle={isCctp ? cctpSubtitle : undefined}
         rows={[
           { label: "To", value: receipt.recipientLabel },
           { label: isCctp ? "Net sent" : "Amount", value: `${formatTokenAmount(receipt.netAmount, receipt.token)} ${receipt.token}` },
           ...(isCctp && receipt.chainLabel ? [{ label: "Destination", value: receipt.chainLabel }] : []),
-          { label: "Status", value: isCctp ? "Submitted — bridging" : "Confirmed" },
+          { label: "Status", value: isCctp ? cctpStatusLabel : "Confirmed" },
         ]}
         explorerUrl={`https://testnet.arcscan.app/tx/${receipt.hash}`}
         explorerLabel={isCctp ? "View burn transaction (Arc)" : "View on Arc Explorer"}
+        secondaryExplorerUrl={destTxUrl ?? undefined}
+        secondaryExplorerLabel={isCctp && receipt.chainLabel ? `View mint on ${receipt.chainLabel}` : undefined}
         shareTitle="vLitePay transfer"
         shareText={`Sent ${formatTokenAmount(receipt.netAmount, receipt.token)} ${receipt.token} to ${receipt.recipientLabel}${isCctp ? ` on ${receipt.chainLabel}` : ""} via vLitePay`}
         shareUrl={`https://testnet.arcscan.app/tx/${receipt.hash}`}
@@ -220,6 +303,7 @@ export function SendPanel() {
       {isCrossChain && cctpBusy && cctpStep && (
         <p className="text-xs text-ink-muted text-center -mt-1">
           {cctpStep === "fee" && "Sending platform fee to treasury — you'll confirm again to bridge."}
+          {cctpStep === "quote" && "Getting a live bridging quote from Circle…"}
           {cctpStep === "approve" && "Approve spending — you'll confirm once more to bridge."}
           {cctpStep === "burn" && "Bridging via CCTP — final confirmation."}
         </p>

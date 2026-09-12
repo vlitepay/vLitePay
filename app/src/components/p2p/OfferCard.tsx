@@ -8,6 +8,7 @@ import { Offer } from "@/lib/types/p2p";
 import { TOKENS } from "@/lib/constants";
 import { formatTokenAmount } from "@/lib/utils";
 import { useUsernameOf } from "@/hooks/useUsernameRegistry";
+import type { MerchantRatingSummary } from "@/hooks/useRecentSettledTrades";
 
 function shortAddr(addr: string) {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
@@ -17,6 +18,7 @@ export function OfferCard({
   offer,
   index,
   avatarUrl,
+  rating,
 }: {
   offer: Offer;
   index: number;
@@ -26,6 +28,13 @@ export function OfferCard({
    * current browser's own data and would show initials for every other
    * viewer regardless of what the merchant actually uploaded. */
   avatarUrl?: string | null;
+  /** Resolved by the parent (OfferList) from one shared bounded on-chain
+   * scan — see hooks/useRecentSettledTrades.ts. `null`/`undefined` means no
+   * ratings were found for this merchant within that scan window (either
+   * genuinely none yet, or the scan just doesn't reach back far enough) —
+   * either way we show "New" rather than a per-card chain walk or an
+   * invented number. */
+  rating?: MerchantRatingSummary | null;
 }) {
   const token = TOKENS[offer.tokenSymbol];
   const rate = Number(formatUnits(offer.rate, 18));
@@ -37,9 +46,6 @@ export function OfferCard({
   // hasn't registered a username.
   const { data: merchantUsername } = useUsernameOf(offer.merchant);
   const displayName = merchantUsername || shortAddr(offer.merchant);
-
-  // Placeholder rating until Phase 4 wires up aggregated on-chain rating averages per merchant.
-  const displayRating = 4.6 + ((Number(offer.id) * 7) % 4) / 10;
 
   return (
     <motion.div
@@ -65,8 +71,16 @@ export function OfferCard({
               <ShieldCheck size={13} className="text-success shrink-0" />
             </div>
             <div className="flex items-center gap-1 text-xs text-ink-muted">
-              <Star size={11} fill="currentColor" className="text-vlite-gold" />
-              {displayRating.toFixed(1)} · {offer.tradesCount.toString()} trades
+              {rating ? (
+                <>
+                  <Star size={11} fill="currentColor" className="text-vlite-gold" />
+                  {rating.average.toFixed(1)} · {offer.tradesCount.toString()} trades
+                </>
+              ) : (
+                <>
+                  <span className="font-medium text-vlite-purple">New</span> · {offer.tradesCount.toString()} trades
+                </>
+              )}
             </div>
           </div>
         </div>

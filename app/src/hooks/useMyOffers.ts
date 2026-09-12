@@ -5,6 +5,7 @@ import { useAccount, useReadContract, useReadContracts } from "wagmi";
 import { CONTRACTS, OFFER_SCAN_LIMIT, TOKENS, TokenSymbol } from "@/lib/constants";
 import { p2pEscrowAbi } from "@/lib/abi/p2pEscrow";
 import { Offer } from "@/lib/types/p2p";
+import { useDeletedOffersStore } from "@/store/useDeletedOffersStore";
 
 const symbolByAddress: Record<string, TokenSymbol> = Object.fromEntries(
   (Object.keys(TOKENS) as TokenSymbol[]).map((s) => [TOKENS[s].address.toLowerCase(), s])
@@ -12,6 +13,7 @@ const symbolByAddress: Record<string, TokenSymbol> = Object.fromEntries(
 
 export function useMyOffers() {
   const { address } = useAccount();
+  const deletedIds = useDeletedOffersStore((s) => s.ids);
 
   const { data: nextIdData } = useReadContract({
     address: CONTRACTS.p2pEscrow,
@@ -50,8 +52,9 @@ export function useMyOffers() {
         })
       )
       .filter((o) => o.merchant.toLowerCase() === address.toLowerCase())
+      .filter((o) => !deletedIds[o.id.toString()])
       .sort((a, b) => Number(b.createdAt - a.createdAt));
-  }, [data, address]);
+  }, [data, address, deletedIds]);
 
   return { offers, isLoading, refetch };
 }

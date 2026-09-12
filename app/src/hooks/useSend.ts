@@ -6,7 +6,8 @@ import { pad, maxUint256 } from "viem";
 import { CONTRACTS, TOKENS, TokenSymbol } from "@/lib/constants";
 import { erc20AllowanceAbi } from "@/lib/abi/p2pEscrow";
 import { sendWithFeeAbi } from "@/lib/abi/sendWithFee";
-import { tokenMessengerAbi, CCTP_FINALITY_THRESHOLD } from "@/lib/abi/tokenMessenger";
+import { tokenMessengerAbi, CCTP_FINALITY_THRESHOLD, FORWARDING_SERVICE_HOOK_DATA, FORWARDING_DESTINATION_CALLER } from "@/lib/abi/tokenMessenger";
+import { fetchCctpFeeQuotes, pickBestFeeQuote, CCTP_DOMAIN } from "@/lib/cctp";
 import { useTreasuryAddress } from "./useTreasuryAddress";
 import { waitForReceiptRobust, ReceiptRevertedError, ReceiptTimeoutError } from "@/lib/waitForReceipt";
 import { describeCircleWriteError } from "@/lib/circleErrors";
@@ -245,6 +246,15 @@ const CCTP_MAX_FEE_BPS = 10n; // 0.10% conservative default
  * `step` describes which part of the flow is active, for SendPanel's UI:
  *   "fee" (only if feeAmount > 0) -> "approve" (only if needed) -> "burn"
  */
+export interface CctpSendResult {
+  hash: `0x${string}`;
+  destinationDomain: number;
+  /** true if Circle's Forwarding Service was used (Circle mints automatically); false if we fell back to a plain burn (needs a relayer — see app/api/cctp/relay). */
+  usedForwarding: boolean;
+  /** true if Iris genuinely had no fee quote for this source/destination pair — surfaced so the receipt can say so honestly rather than imply a normal pending mint. */
+  irisEmpty: boolean;
+}
+
 export function useCctpSend() {
   const { address } = useAccount();
   const { writeContractAsync } = useWriteContract();
@@ -252,7 +262,7 @@ export function useCctpSend() {
   const { treasury } = useTreasuryAddress();
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [step, setStep] = useState<"fee" | "approve" | "burn" | null>(null);
+  const [step, setStep] = useState<"fee" | "quote" | "approve" | "burn" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function sendCrossChain(
@@ -260,7 +270,7 @@ export function useCctpSend() {
     destinationDomain: number,
     recipientAddress: `0x${string}`,
     feeAmount: bigint = 0n
-  ) {
+  ): Promise<CctpSendResult | null> {
     if (!CONTRACTS.tokenMessenger) {
       setError("CCTP TokenMessenger address isn't configured for this environment yet.");
       return null;
@@ -290,9 +300,48 @@ export function useCctpSend() {
         setConfirming(false);
       }
 
-      // --- Step 1: check existing allowance, only approve if actually needed ---
-      // Avoids a redundant approval tx (and its gas cost) on repeat sends once
-      // the TokenMessenger already has sufficient allowance.
+      // --- Step 1: ask Circle's Iris API for a real Forwarding Service
+      // fee quote for this source/destination pair. Arc doesn't support
+      // Fast as a source today, so pickBestFeeQuote naturally falls back
+      // to Standard — see lib/cctp.ts. An empty/failed quote is Iris
+      // genuinely having nothing for this pair right now (seen for Arc,
+      // domain 26, historically) — not an error to paper over, so we fall
+      // back to a plain (non-forwarding) burn using the same conservative
+      // fixed-bps fee this app used before Forwarding existed, and flag
+      // irisEmpty so the receipt can say so honestly.
+      setStep("quote");
+      const quotes = await fetchCctpFeeQuotes(CCTP_DOMAIN.arc, destinationDomain, true);
+      const quote = quotes ? pickBestFeeQuote(quotes) : null;
+      const usedForwarding = !!quote;
+      const irisEmpty = !quote;
+
+      const mintRecipient = pad(recipientAddress, { size: 32 });
+
+      let totalBurnAmount: bigint;
+      let maxFee: bigint;
+      let minFinalityThreshold: number;
+
+      if (quote) {
+        // Forwarding: maxFee must cover BOTH the base CCTP protocol fee
+        // (minimumFee, in bps) and Circle's own forwarding fee — burning
+        // amount + maxFee so the recipient nets exactly `amount` after
+        // Circle deducts up to maxFee. Matches Circle's own worked
+        // example: "Total to burn (recipient gets recipientAmount)".
+        const baseProtocolFee = (amount * BigInt(quote.minimumFee)) / 10_000n;
+        const forwardFee = BigInt(quote.forwardFee?.med ?? 0);
+        maxFee = baseProtocolFee + forwardFee;
+        totalBurnAmount = amount + maxFee;
+        minFinalityThreshold = quote.finalityThreshold;
+      } else {
+        // Fallback: same fixed-bps estimate this app used before
+        // Forwarding existed. Fee is deducted FROM `amount` here (not
+        // added on top), matching the prior behavior exactly.
+        maxFee = (amount * CCTP_MAX_FEE_BPS) / 10_000n;
+        totalBurnAmount = amount;
+        minFinalityThreshold = CCTP_FINALITY_THRESHOLD.FAST;
+      }
+
+      // --- Step 2: check existing allowance, only approve if actually needed ---
       const currentAllowance = (await publicClient.readContract({
         address: TOKENS.USDC.address,
         abi: erc20AllowanceAbi,
@@ -300,17 +349,22 @@ export function useCctpSend() {
         args: [address, CONTRACTS.tokenMessenger],
       })) as bigint;
 
-      console.log("[CCTP] current USDC allowance for TokenMessengerV2:", currentAllowance.toString(), "need:", amount.toString());
+      console.log(
+        "[CCTP] current USDC allowance for TokenMessengerV2:",
+        currentAllowance.toString(),
+        "need:",
+        totalBurnAmount.toString()
+      );
 
-      if (currentAllowance < amount) {
-        console.log("[CCTP] insufficient allowance — sending approve() for", amount.toString(), "USDC (smallest units)");
+      if (currentAllowance < totalBurnAmount) {
+        console.log("[CCTP] insufficient allowance — sending approve() for", totalBurnAmount.toString(), "USDC (smallest units)");
 
         setStep("approve");
         const approveHash = await writeContractAsync({
           address: TOKENS.USDC.address,
           abi: erc20AllowanceAbi,
           functionName: "approve",
-          args: [CONTRACTS.tokenMessenger, amount],
+          args: [CONTRACTS.tokenMessenger, totalBurnAmount],
           gas: APPROVE_GAS_LIMIT,
         });
         console.log("[CCTP] approve() submitted:", approveHash);
@@ -323,42 +377,58 @@ export function useCctpSend() {
         console.log("[CCTP] existing allowance already covers this amount — skipping approve()");
       }
 
-      // --- Step 2: burn via depositForBurn (CCTP V2 fast-transfer signature) ---
-      // mintRecipient must be the destination address left-padded to bytes32 —
-      // CCTP's message format always uses a 32-byte recipient field regardless
-      // of the destination chain's native address width.
-      const mintRecipient = pad(recipientAddress, { size: 32 });
-      const maxFee = (amount * CCTP_MAX_FEE_BPS) / 10_000n;
-      // bytes32(0) — allows any address to complete the mint on the destination domain
-      // (no permissioned relayer required). Written out explicitly (rather than relying
-      // on a library constant) so the exact 32-byte length is unambiguous.
-      const destinationCaller = `0x${"0".repeat(64)}` as `0x${string}`;
-
-      console.log("[CCTP] depositForBurn params:", {
-        amount: amount.toString(),
+      // --- Step 3: burn — via depositForBurnWithHook (Forwarding Service)
+      // if we got a real quote, or the plain depositForBurn fallback.
+      console.log("[CCTP] burn params:", {
+        usedForwarding,
+        totalBurnAmount: totalBurnAmount.toString(),
         destinationDomain,
         mintRecipient,
         burnToken: TOKENS.USDC.address,
-        destinationCaller,
         maxFee: maxFee.toString(),
-        minFinalityThreshold: CCTP_FINALITY_THRESHOLD.FAST,
+        minFinalityThreshold,
       });
 
       setStep("burn");
-      const hash = await writeContractAsync({
-        address: CONTRACTS.tokenMessenger,
-        abi: tokenMessengerAbi,
-        functionName: "depositForBurn",
-        args: [amount, destinationDomain, mintRecipient, TOKENS.USDC.address, destinationCaller, maxFee, CCTP_FINALITY_THRESHOLD.FAST],
-        gas: DEPOSIT_FOR_BURN_GAS_LIMIT,
-      });
-      console.log("[CCTP] depositForBurn() submitted:", hash);
+      const hash = usedForwarding
+        ? await writeContractAsync({
+            address: CONTRACTS.tokenMessenger,
+            abi: tokenMessengerAbi,
+            functionName: "depositForBurnWithHook",
+            args: [
+              totalBurnAmount,
+              destinationDomain,
+              mintRecipient,
+              TOKENS.USDC.address,
+              FORWARDING_DESTINATION_CALLER,
+              maxFee,
+              minFinalityThreshold,
+              FORWARDING_SERVICE_HOOK_DATA,
+            ],
+            gas: DEPOSIT_FOR_BURN_GAS_LIMIT,
+          })
+        : await writeContractAsync({
+            address: CONTRACTS.tokenMessenger,
+            abi: tokenMessengerAbi,
+            functionName: "depositForBurn",
+            args: [
+              totalBurnAmount,
+              destinationDomain,
+              mintRecipient,
+              TOKENS.USDC.address,
+              FORWARDING_DESTINATION_CALLER,
+              maxFee,
+              minFinalityThreshold,
+            ],
+            gas: DEPOSIT_FOR_BURN_GAS_LIMIT,
+          });
+      console.log("[CCTP]", usedForwarding ? "depositForBurnWithHook()" : "depositForBurn()", "submitted:", hash);
 
       setConfirming(true);
       const receipt = await waitForReceiptRobust(publicClient, hash);
-      console.log("[CCTP] depositForBurn() confirmed in block", receipt.blockNumber, "status:", receipt.status);
+      console.log("[CCTP] burn confirmed in block", receipt.blockNumber, "status:", receipt.status);
 
-      return hash;
+      return { hash, destinationDomain, usedForwarding, irisEmpty };
     } catch (err: any) {
       console.error("[CCTP] sendCrossChain failed:", err);
       setError(describeConfirmError(err, "Cross-chain send failed"));

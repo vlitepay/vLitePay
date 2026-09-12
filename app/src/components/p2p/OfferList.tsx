@@ -7,6 +7,7 @@ import { useP2PStore } from "@/store/useP2PStore";
 import { useOffers } from "@/hooks/useOffers";
 import { useResolveUsername } from "@/hooks/useUsernameRegistry";
 import { useMerchantAvatars } from "@/hooks/useMerchantAvatars";
+import { useRecentSettledTrades } from "@/hooks/useRecentSettledTrades";
 import { TOKENS } from "@/lib/constants";
 import { OfferCard } from "./OfferCard";
 import { SearchMerchantInput } from "./SearchMerchantInput";
@@ -59,6 +60,12 @@ export function OfferList() {
     });
   }, [offers, normalizedQuery, resolvedAddress, selectedToken]);
 
+  // One shared bounded on-chain scan (eth_call only) resolves every visible
+  // merchant's rating average at once — see useRecentSettledTrades.ts.
+  // Passed down the same way avatars already are, so no OfferCard walks
+  // the chain on its own.
+  const { getMerchantRating } = useRecentSettledTrades();
+
   // One batched request resolves every visible merchant's avatar from
   // Supabase — works for any viewer, not just each merchant viewing their
   // own offers (see hooks/useMerchantAvatars.ts).
@@ -103,7 +110,13 @@ export function OfferList() {
       ) : (
         <div className="space-y-2.5">
           {filteredOffers.map((offer, i) => (
-            <OfferCard key={offer.id.toString()} offer={offer} index={i} avatarUrl={avatars[offer.merchant.toLowerCase()]} />
+            <OfferCard
+              key={offer.id.toString()}
+              offer={offer}
+              index={i}
+              avatarUrl={avatars[offer.merchant.toLowerCase()]}
+              rating={getMerchantRating(offer.merchant)}
+            />
           ))}
         </div>
       )}
