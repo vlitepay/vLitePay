@@ -119,22 +119,41 @@ export function ActiveTradeBanner() {
   const { trades: adminDisputedTrades } = useDisputedTrades();
   const [showAllOpen, setShowAllOpen] = useState(false);
 
-  const openItems: Trade[] = useMemo(() => {
-    const source = canAccessAdmin ? adminDisputedTrades : myTrades.filter((t) => isOpenStatus(t.status));
-    return [...source].sort((a, b) => {
+  const myOpenTrades = useMemo(() => myTrades.filter((t) => isOpenStatus(t.status)), [myTrades]);
+
+  // BUG FIX: this used to be `canAccessAdmin ? adminDisputedTrades :
+  // myTrades` — an admin/merchant with e.g. 3 Locked trades they're
+  // personally party to but 0 disputes got an EMPTY list out of that
+  // ternary (adminDisputedTrades has nothing to show), so the pill never
+  // rendered even though there were clearly 3 open trades to see. An admin
+  // is a trader first: they always get their own open trades, exactly like
+  // anyone else, with any open disputes system-wide appended on top (and
+  // only once — a trade the admin happens to also be a party to isn't
+  // duplicated just because it's also disputed).
+  const openItems: (Trade & { isAdminDispute?: boolean })[] = useMemo(() => {
+    const combined: (Trade & { isAdminDispute?: boolean })[] = [...myOpenTrades];
+    if (canAccessAdmin) {
+      const alreadyListed = new Set(myOpenTrades.map((t) => t.id.toString()));
+      for (const dispute of adminDisputedTrades) {
+        if (!alreadyListed.has(dispute.id.toString())) {
+          combined.push({ ...dispute, isAdminDispute: true });
+        }
+      }
+    }
+    return combined.sort((a, b) => {
       const aIsCurrent = activeTradeId != null && Number(a.id) === activeTradeId;
       const bIsCurrent = activeTradeId != null && Number(b.id) === activeTradeId;
       if (aIsCurrent !== bIsCurrent) return aIsCurrent ? -1 : 1;
       return Number(b.lockedAt - a.lockedAt);
     });
-  }, [canAccessAdmin, adminDisputedTrades, myTrades, activeTradeId]);
+  }, [myOpenTrades, canAccessAdmin, adminDisputedTrades, activeTradeId]);
 
-  // Only worth a control when there's something beyond what the banner
-  // already shows on its own — an admin with zero personal active trade but
-  // open disputes still gets it; a lone trade that's already the banner
-  // doesn't produce a second, redundant entry point.
-  const extraOpenCount = visible && trade ? openItems.length - 1 : openItems.length;
-  const showViewAllControl = !onTradePage && extraOpenCount > 0;
+  // Same reasoning as above applied to when the pill itself shows: an admin
+  // with 1 personal open trade and 2 open disputes elsewhere (or 0 personal
+  // trades and 1 dispute) still has something worth surfacing, even though
+  // `openItems.length` alone wouldn't necessarily hit 2.
+  const disputeCount = adminDisputedTrades.length;
+  const showViewAllControl = !onTradePage && (openItems.length >= 2 || (canAccessAdmin && disputeCount >= 1));
 
   const counterparty = trade
     ? trade.cryptoBuyer.toLowerCase() === address?.toLowerCase()
@@ -161,7 +180,7 @@ export function ActiveTradeBanner() {
                   onClick={() => setShowAllOpen((v) => !v)}
                   className="glass-panel flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium text-ink-muted hover:text-ink-light dark:hover:text-ink-dark"
                 >
-                  {canAccessAdmin ? "View all disputes" : "View all"} ({openItems.length})
+                  View all ({openItems.length})
                   {showAllOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                 </button>
               </div>
@@ -183,6 +202,7 @@ export function ActiveTradeBanner() {
                         {formatTokenAmount(Number(formatUnits(t.amount, TOKENS[t.tokenSymbol].decimals)), t.tokenSymbol)}{" "}
                         {t.tokenSymbol}
                         {isCurrent && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-vlite-purple">current</span>}
+                        {t.isAdminDispute && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-danger">dispute</span>}
                       </span>
                       <span className="text-xs text-ink-muted shrink-0">{STATUS_LABEL[t.status]}</span>
                     </Link>

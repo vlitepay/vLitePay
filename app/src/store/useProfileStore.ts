@@ -1,7 +1,5 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { signMessage } from "wagmi/actions";
-import { wagmiConfig } from "@/lib/wagmi-config";
 import type { ProfileRow } from "@/lib/types/database";
 
 export interface SocialLink {
@@ -80,9 +78,7 @@ export interface SaveableProfileFields {
   email?: string | null;
 }
 
-export type SaveToSupabaseResult =
-  | { ok: true }
-  | { ok: false; error: string };
+export type SaveToSupabaseResult = { ok: true } | { ok: false; error: string };
 
 interface ProfileState {
   /**
@@ -119,32 +115,29 @@ interface ProfileState {
   loadFromSupabase: (address: string | undefined) => Promise<void>;
 
   /**
-   * Explicitly, optionally pushes profile data to Supabase using the
-   * existing secure write path: GET /api/profile/nonce -> wallet signs the
-   * returned message -> POST /api/profile with { wallet, message,
-   * signature, ...fields }. NOT called automatically by setAvatar/setBio/
-   * etc. — a caller (e.g. a future "Sync to cloud" button) must invoke
-   * this explicitly.
+   * Explicitly, optionally pushes profile data to Supabase via POST
+   * /api/profile — one direct call, no nonce fetch, no wallet signature
+   * prompt, no tx, no session/token check. NOT called automatically by
+   * setAvatar/setBio/etc. — a caller (the Profile page's "Save profile"
+   * button) must invoke this explicitly. Works identically for a
+   * Circle-login wallet or a WalletConnect/injected wallet — the request
+   * just carries `address` as `wallet` in the body, nothing more.
    *
    * `fields` defaults to the current local profile for `address` if
    * omitted, so `saveToSupabase(address)` alone pushes everything already
    * saved locally. Pass a partial SaveableProfileFields to push only
-   * specific fields instead.
-   *
-   * Signing goes through wagmi's `signMessage` action (not the `useSignMessage`
-   * hook, since this runs outside a component) — this dispatches through
-   * whichever connector is currently active in wagmiConfig, so it works
-   * identically whether the user connected via injected/WalletConnect or
-   * via the Circle email connector (lib/circleConnector.ts implements
-   * personal_sign the same as any other EIP-1193 provider).
+   * specific fields instead (e.g. the Profile page passes just
+   * avatarDataUrl/bio/socials, deliberately leaving bankAccounts out since
+   * bank details aren't part of that button's scope — the server also
+   * hard-rejects bank_details/email on this endpoint regardless).
    *
    * On success: local state is left untouched (local storage stays the
-   * source of truth per this step's scope) — the caller can inspect
-   * `.ok` to show a success indicator if desired.
-   * On failure (rejected signature, expired/invalid nonce, network error,
-   * Supabase unavailable, etc.): never throws — returns
-   * `{ ok: false, error }` with a clear, user-presentable message, and
-   * local data is left completely unchanged.
+   * source of truth) — the caller can inspect `.ok` to show a success
+   * indicator if desired.
+   * On failure (network error, Supabase unavailable, etc.): never throws —
+   * returns `{ ok: false, error }` with a clear, user-presentable message,
+   * and local data is left completely unchanged (so the form is never
+   * cleared on failure).
    */
   saveToSupabase: (
     address: string | undefined,
@@ -250,22 +243,23 @@ export const useProfileStore = create<ProfileState>()(
           return { ok: false, error: "No wallet connected." };
         }
         const key = address.toLowerCase();
+
         const source = fields ?? get().profiles[key] ?? EMPTY_PROFILE;
 
         // Local -> API field-name translation (avatarDataUrl -> avatar_url,
         // bankAccounts -> bank_details) happens here, once, rather than
         // asking every future caller to know the API's column names.
         //
-        // isDefaultSync=true means "push everything I have locally" (the
-        // Sync profile button calls saveToSupabase(address) with no
-        // explicit fields) — in that case, an EMPTY local value must never
-        // be sent, since Supabase may already correctly hold a value this
-        // browser simply doesn't have cached (e.g. an avatar uploaded and
-        // synced from a different device/session). Sending it anyway would
-        // silently clobber already-working remote data with emptiness —
-        // this is exactly what caused merchant avatars to disappear for
-        // every viewer after an affected merchant re-synced from a session
-        // with no local avatar cached.
+        // isDefaultSync=true means "push everything I have locally" (called
+        // as saveToSupabase(address) with no explicit fields) — in that
+        // case, an EMPTY local value must never be sent, since Supabase may
+        // already correctly hold a value this browser simply doesn't have
+        // cached (e.g. an avatar uploaded and synced from a different
+        // device/session). Sending it anyway would silently clobber
+        // already-working remote data with emptiness — this is exactly
+        // what caused merchant avatars to disappear for every viewer after
+        // an affected merchant re-synced from a session with no local
+        // avatar cached.
         //
         // A caller that passes `fields` explicitly is trusted to mean it —
         // including an intentional `null`/empty value to actually clear a
@@ -284,33 +278,14 @@ export const useProfileStore = create<ProfileState>()(
         if ("email" in source) include("email", source.email, !source.email);
 
         try {
-          // 1. Get a fresh, single-use nonce/message for this wallet.
-          const nonceRes = await fetch(`/api/profile/nonce?wallet=${encodeURIComponent(key)}`);
-          if (!nonceRes.ok) {
-            return { ok: false, error: "Could not start a secure save — please try again." };
-          }
-          const nonceJson = await nonceRes.json().catch(() => null);
-          const message = nonceJson?.message;
-          if (typeof message !== "string" || !message) {
-            return { ok: false, error: "Could not start a secure save — please try again." };
-          }
-
-          // 2. Ask the connected wallet (injected/WalletConnect/Circle — all
-          // handled identically via wagmi's connector-agnostic action) to
-          // sign that exact message. The user's wallet UI (or Circle's
-          // PIN/biometric prompt) shows the message here; rejecting it
-          // throws, which the catch below turns into a clean error result.
-          const signature = await signMessage(wagmiConfig, { account: address as `0x${string}`, message });
-
-          // 3. Submit wallet + message + signature + fields. The API route
-          // re-verifies all of this server-side (consumeProfileNonce then
-          // verifyWalletSignature) before writing — this client-side flow
-          // doesn't grant any trust on its own, it just supplies what the
-          // server requires.
+          // One direct call: wallet + sanitized fields, no nonce, no
+          // signature, no session/token, no wallet sheet, no tx. The
+          // server upserts by `wallet` — see app/api/profile/route.ts for
+          // what's allowed through.
           const postRes = await fetch("/api/profile", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ wallet: key, message, signature, ...payloadFields }),
+            body: JSON.stringify({ wallet: key, ...payloadFields }),
           });
 
           if (!postRes.ok) {
@@ -323,8 +298,7 @@ export const useProfileStore = create<ProfileState>()(
 
           return { ok: true };
         } catch (err) {
-          // Covers: signature rejected by the user, wallet/Circle prompt
-          // errored, or a network failure at any step. Local data is
+          // Covers a network failure reaching /api/profile. Local data is
           // untouched in every case — nothing here calls set().
           const message = err instanceof Error ? err.message : "Save failed.";
           return { ok: false, error: message };

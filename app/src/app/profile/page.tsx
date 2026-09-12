@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAccount } from "wagmi";
-import { ShieldCheck, ChevronRight, LogIn, LifeBuoy, Cloud, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { ShieldCheck, ChevronRight, LogIn, LifeBuoy, Save, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import clsx from "clsx";
 import { useAdminRole } from "@/hooks/useAdminRole";
@@ -27,27 +27,33 @@ export default function ProfilePage() {
   const { address, isConnected } = useAccount();
   const { canAccessAdmin } = useAdminRole();
   const { data: username } = useMyUsername();
-  const avatarDataUrl = useProfileStore((s) => s.getProfile(address).avatarDataUrl);
+  const profile = useProfileStore((s) => s.getProfile(address));
   const loadFromSupabase = useProfileStore((s) => s.loadFromSupabase);
   const saveToSupabase = useProfileStore((s) => s.saveToSupabase);
   const [tab, setTab] = useState<ProfileTab>("settings");
-  const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
-  const [syncError, setSyncError] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Explicit, user-triggered only — never called automatically on edits.
-  // Runs the existing secure nonce -> sign -> POST flow inside
-  // saveToSupabase, which never throws; local data is untouched regardless
-  // of outcome, this just reflects the result in the button/status text.
-  async function handleSync() {
+  // One direct upsert (see useProfileStore.saveToSupabase): no wallet
+  // sheet, no personal_sign, no tx, no extra modal. Deliberately scoped to
+  // just avatar/bio/socials — bank details aren't part of this button and
+  // keep working exactly as they already do (local-only, shared only when
+  // explicitly posted into a trade chat).
+  async function handleSave() {
     if (!address) return;
-    setSyncStatus("saving");
-    setSyncError(null);
-    const result = await saveToSupabase(address);
+    setSaveStatus("saving");
+    setSaveError(null);
+    const result = await saveToSupabase(address, {
+      avatarDataUrl: profile.avatarDataUrl,
+      bio: profile.bio,
+      socials: profile.socials,
+    });
     if (result.ok) {
-      setSyncStatus("success");
+      setSaveStatus("success");
     } else {
-      setSyncStatus("error");
-      setSyncError(result.error);
+      setSaveStatus("error");
+      setSaveError(result.error);
     }
   }
 
@@ -93,7 +99,7 @@ export default function ProfilePage() {
         <TradeHistoryList />
       ) : (
         <div className="space-y-4">
-          <ProfileCompletenessCard hasUsername={!!username} hasAvatar={!!avatarDataUrl} />
+          <ProfileCompletenessCard hasUsername={!!username} hasAvatar={!!profile.avatarDataUrl} />
 
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-panel p-6 text-center space-y-3">
             <AvatarUpload />
@@ -115,36 +121,36 @@ export default function ProfilePage() {
           <div className="glass-panel p-4 space-y-2">
             <div className="flex items-center justify-between gap-3">
               <span className="flex items-center gap-2.5 text-sm font-medium">
-                <Cloud size={16} className="text-vlite-cyan" /> Sync profile
+                <Save size={16} className="text-vlite-cyan" /> Save profile
               </span>
               <button
                 type="button"
-                onClick={handleSync}
-                disabled={syncStatus === "saving"}
+                onClick={handleSave}
+                disabled={saveStatus === "saving"}
                 className={clsx(
                   "px-4 py-2 rounded-xl text-xs font-semibold transition-colors",
-                  syncStatus === "saving"
+                  saveStatus === "saving"
                     ? "bg-white/5 text-ink-muted cursor-not-allowed"
                     : "bg-vlite-gradient text-white hover:opacity-90"
                 )}
               >
-                {syncStatus === "saving" ? (
+                {saveStatus === "saving" ? (
                   <span className="flex items-center gap-1.5">
-                    <Loader2 size={14} className="animate-spin" /> Syncing…
+                    <Loader2 size={14} className="animate-spin" /> Saving…
                   </span>
                 ) : (
-                  "Sync profile"
+                  "Save profile"
                 )}
               </button>
             </div>
-            {syncStatus === "success" && (
+            {saveStatus === "success" && (
               <p className="text-xs text-emerald-400 flex items-center gap-1.5">
-                <CheckCircle2 size={14} /> Synced to cloud.
+                <CheckCircle2 size={14} /> Saved.
               </p>
             )}
-            {syncStatus === "error" && syncError && (
+            {saveStatus === "error" && saveError && (
               <p className="text-xs text-red-400 flex items-center gap-1.5">
-                <AlertCircle size={14} /> {syncError}
+                <AlertCircle size={14} /> {saveError}
               </p>
             )}
           </div>
