@@ -152,7 +152,7 @@ trade history (replayed from `TradeLocked` logs), and a merchant application sho
 
 • AI receipt analyzer for disputes is still simulated.
 
-• Some advanced merchant and referral features are not yet fully active.
+• Merchant email notifications are in progress (event indexer).
 
 ---
 
