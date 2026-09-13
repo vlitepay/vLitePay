@@ -2,6 +2,7 @@ import Link from "next/link";
 import { BrandMark } from "./BrandMark";
 import { BrandWordmark } from "./BrandWordmark";
 import { ThemeToggle } from "./ThemeToggle";
+import { SearchOverlay } from "./SearchOverlay";
 import { WalletConnectButton } from "./WalletConnectButton";
 import { NotificationBell } from "./NotificationBell";
 import { NAV_ITEMS } from "@/lib/constants";
@@ -29,6 +30,7 @@ export function Header() {
 
         <div className="flex items-center gap-2">
           <ThemeToggle />
+          <SearchOverlay />
           <NotificationBell />
           <WalletConnectButton />
         </div>

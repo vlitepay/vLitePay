@@ -2,15 +2,11 @@
 
 import { useState } from "react";
 import { useAccount, useReadContract } from "wagmi";
-import { AtSign, Search, CheckCircle2, XCircle } from "lucide-react";
+import { AtSign, CheckCircle2, XCircle } from "lucide-react";
 import { CONTRACTS } from "@/lib/constants";
 import { usernameRegistryAbi } from "@/lib/abi/usernameRegistry";
-import { useMyUsername, useResolveUsername, useUsernameActions } from "@/hooks/useUsernameRegistry";
+import { useMyUsername, useUsernameActions } from "@/hooks/useUsernameRegistry";
 import { notify } from "@/lib/notify";
-
-function shortAddr(addr: string) {
-  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
-}
 
 export function UsernameCard() {
   const { address, isConnected } = useAccount();
@@ -18,7 +14,6 @@ export function UsernameCard() {
   const { register, busy, error } = useUsernameActions();
 
   const [draft, setDraft] = useState("");
-  const [search, setSearch] = useState("");
 
   const { data: draftAvailable } = useReadContract({
     address: CONTRACTS.usernameRegistry,
@@ -34,8 +29,6 @@ export function UsernameCard() {
     functionName: "registrationFee",
     query: { enabled: !!CONTRACTS.usernameRegistry },
   });
-
-  const { data: searchResult } = useResolveUsername(search);
 
   if (!isConnected) return null;
 
@@ -92,24 +85,6 @@ export function UsernameCard() {
           {error && <p className="text-xs text-danger">{error}</p>}
         </div>
       )}
-
-      <div className="pt-3 border-t border-white/15 dark:border-white/5 space-y-2">
-        <label className="text-xs text-ink-muted flex items-center gap-1.5">
-          <Search size={12} /> Look up a username
-        </label>
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value.toLowerCase())}
-          placeholder="search username…"
-          className="w-full rounded-xl px-3 py-2 bg-white/50 dark:bg-white/5 border border-white/30 dark:border-white/10 text-sm outline-none focus:ring-2 focus:ring-vlite-cyan"
-        />
-        {search.length >= 3 && searchResult && searchResult !== "0x0000000000000000000000000000000000000000" && (
-          <div className="rounded-xl bg-white/40 dark:bg-white/5 p-2.5 flex items-center justify-between text-sm">
-            <span className="font-medium">@{search}</span>
-            <span className="stat-mono text-ink-muted">{shortAddr(searchResult)}</span>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { Trade } from "@/lib/types/p2p";
 import { TOKENS } from "@/lib/constants";
 import { formatTokenAmount } from "@/lib/utils";
 import { useAdminActions } from "@/hooks/useAdminActions";
+import { useUsernameOf } from "@/hooks/useUsernameRegistry";
 import { ReceiptAnalyzer } from "./ReceiptAnalyzer";
 
 function shortAddr(addr: string) {
@@ -27,6 +28,15 @@ export function DisputeCard({ trade, onResolved }: { trade: Trade; onResolved?: 
   const [buyerAmount, setBuyerAmount] = useState(String(totalAmount / 2));
   const [showAnalyzer, setShowAnalyzer] = useState(false);
   const { resolveDispute, busy, error } = useAdminActions();
+
+  // Same reverseResolve lookup OfferCard/ActivityFeedRow already use —
+  // falls back to the truncated address (same 6+4 shortAddr) when nothing
+  // is registered. DisputeCard is already one component per row, so these
+  // are called here directly rather than inside the parent's .map.
+  const { data: buyerUsername } = useUsernameOf(trade.cryptoBuyer);
+  const { data: sellerUsername } = useUsernameOf(trade.cryptoSeller);
+  const buyerLabel = buyerUsername ? `@${buyerUsername}` : shortAddr(trade.cryptoBuyer);
+  const sellerLabel = sellerUsername ? `@${sellerUsername}` : shortAddr(trade.cryptoSeller);
 
   // The buyer's award amount, derived from whichever mode/unit is active.
   const amountToBuyer = useMemo(() => {
@@ -63,8 +73,8 @@ export function DisputeCard({ trade, onResolved }: { trade: Trade; onResolved?: 
       </div>
 
       <div className="text-xs text-ink-muted space-y-1">
-        <p>Buyer: <span className="stat-mono">{shortAddr(trade.cryptoBuyer)}</span></p>
-        <p>Seller: <span className="stat-mono">{shortAddr(trade.cryptoSeller)}</span></p>
+        <p>Buyer: <span className={buyerUsername ? "font-medium" : "stat-mono"}>{buyerLabel}</span></p>
+        <p>Seller: <span className={sellerUsername ? "font-medium" : "stat-mono"}>{sellerLabel}</span></p>
         <p>Fiat: {(Number(trade.fiatAmount) / 100).toLocaleString()} {trade.fiatCurrency}</p>
       </div>
 

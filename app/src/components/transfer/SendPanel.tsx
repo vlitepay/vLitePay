@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { parseUnits } from "viem";
 import clsx from "clsx";
 import { TOKENS, TokenSymbol, CCTP_CHAINS } from "@/lib/constants";
@@ -40,6 +41,17 @@ export function SendPanel() {
 
   const [recipientInput, setRecipientInput] = useState("");
   const [resolvedAddress, setResolvedAddress] = useState<`0x${string}` | null>(null);
+
+  // Pre-fill from the header search overlay's "Send" action
+  // (/transfer?tab=send&to=username) — same recipient field, same
+  // RecipientInput/resolve flow below, not a new send flow. Only applies
+  // once on mount so a user clearing the field afterward isn't fought.
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const to = searchParams.get("to");
+    if (to) setRecipientInput(to.toLowerCase().replace(/[^a-z0-9_]/g, ""));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [token, setToken] = useState<TokenSymbol>("USDC");
   const [chain, setChain] = useState<string>("arc");
   const [amount, setAmount] = useState("");
