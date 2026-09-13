@@ -127,6 +127,8 @@ pie), quick actions, live-trade social proof feed.
 
 - **Transfer & Deposit** — Send by username or address, QR support, same-chain + cross-chain USDC via CCTP
 
+- **Swap** — USDC ↔ EURC ↔ cirBTC on Arc Testnet via Circle App Kit Swap.
+
 - **P2P Trading** — Escrow-based Buy/Sell offers with fiat, timers, disputes, ratings, and merchant mini-chat
 
 - **MyShop** — merchant application flow, offer posting, pause/resume, and per-offer performance
