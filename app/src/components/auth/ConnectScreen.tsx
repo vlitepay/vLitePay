@@ -248,7 +248,7 @@ export function ConnectScreen() {
           </AnimatePresence>
 
           <p className="text-[11px] text-ink-muted mt-2 max-w-[260px] mx-auto">
-            vLitePay is a technology platform, not a bank. Identity checks and address screening may apply.
+            vLitePay is a technology platform only, not a bank.
           </p>
         </div>
       </motion.div>
