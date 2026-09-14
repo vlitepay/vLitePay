@@ -120,7 +120,7 @@ export default function HomePage() {
         <ActivityFeed />
 
         <p className="text-[11px] text-ink-muted text-center px-6 pb-2">
-          vLitePay is a technology platform only. Users and merchants handle their own KYC/AML.
+          vLitePay is a technology platform, not a bank. Identity checks and address screening may apply.
         </p>
       </div>
     </PullToRefresh>
