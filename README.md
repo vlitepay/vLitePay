@@ -159,4 +159,4 @@ trade history (replayed from `TradeLocked` logs), and a merchant application sho
 ---
 
 ## Disclaimer
-vLitePay is a technology platform, not a bank. Identity checks and address screening may apply. in all fiat-touching flows.
+vLitePay is a technology platform, not a bank. Identity checks and address screening may apply on fiat-touching flows (P2P and merchant offers).
